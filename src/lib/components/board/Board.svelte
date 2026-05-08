@@ -16,10 +16,15 @@
 	let isPanning = $state(false);
 	let activeAction = $state<Action>(null);
 	let items = $state<EventItem[]>([]);
+	let draggingItemId = $state<string | null>(null);
+	let boardEl = $state<HTMLElement | null>(null);
+
 	let lastX = 0;
 	let lastY = 0;
 	let startX = 0;
 	let startY = 0;
+	let grabOffsetX = 0;
+	let grabOffsetY = 0;
 
 	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
@@ -28,6 +33,7 @@
 		activeAction = activeAction === action ? null : action;
 	}
 
+	// --- Board panning ---
 	function onMouseDown(e: MouseEvent) {
 		isPanning = true;
 		startX = e.clientX;
@@ -45,12 +51,13 @@
 	}
 
 	async function onMouseUp(e: MouseEvent) {
+		if (!isPanning) return;
 		const dx = e.clientX - startX;
 		const dy = e.clientY - startY;
 		const isClick = Math.sqrt(dx * dx + dy * dy) < CLICK_THRESHOLD;
 
 		if (isClick && activeAction === 'add-event-item') {
-			const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+			const rect = boardEl!.getBoundingClientRect();
 			const id = crypto.randomUUID();
 			items.push({
 				id,
@@ -79,19 +86,48 @@
 		offsetY += move[1];
 	}
 
-	function cursor() {
+	// --- Item dragging ---
+	function startItemDrag(e: MouseEvent, itemId: string) {
+		e.stopPropagation();
+		const item = items.find((i) => i.id === itemId);
+		if (!item || !boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		grabOffsetX = e.clientX - rect.left - offsetX - item.x;
+		grabOffsetY = e.clientY - rect.top - offsetY - item.y;
+		draggingItemId = itemId;
+		document.addEventListener('mousemove', onDragMove);
+		document.addEventListener('mouseup', onDragEnd);
+	}
+
+	function onDragMove(e: MouseEvent) {
+		const item = items.find((i) => i.id === draggingItemId);
+		if (!item || !boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		item.x = e.clientX - rect.left - offsetX - grabOffsetX;
+		item.y = e.clientY - rect.top - offsetY - grabOffsetY;
+	}
+
+	function onDragEnd() {
+		draggingItemId = null;
+		document.removeEventListener('mousemove', onDragMove);
+		document.removeEventListener('mouseup', onDragEnd);
+	}
+
+	function canvasCursor() {
+		if (draggingItemId) return 'grabbing';
 		if (activeAction === 'add-event-item') return 'crosshair';
 		return isPanning ? 'grabbing' : 'grab';
 	}
 </script>
 
 <div
+	bind:this={boardEl}
 	class="relative h-full w-full overflow-hidden"
 	style="background-color: #F7F9FB; background-image: radial-gradient(circle, #D0D4DA 1px, transparent 1px); background-size: 32px 32px; background-position: {offsetX}px {offsetY}px;"
 >
 	<canvas
 		class="absolute inset-0 h-full w-full select-none"
-		style="cursor: {cursor()};"
+		style="cursor: {canvasCursor()};"
 		aria-label="Whiteboard canvas — use arrow keys or drag to navigate"
 		tabindex="0"
 		onmousedown={onMouseDown}
@@ -107,17 +143,25 @@
 	>
 		{#each items as item (item.id)}
 			<article
-				class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 rounded-lg flex items-center justify-center p-3"
+				class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 rounded-lg flex items-center justify-center p-3 select-none"
 				style="left: {item.x}px; top: {item.y}px; background-color: #FFDCC6; box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
 			>
+				<button
+					class="absolute inset-0 rounded-lg"
+					style="cursor: {draggingItemId === item.id ? 'grabbing' : 'grab'};"
+					aria-label="Move item"
+					onmousedown={(e) => startItemDrag(e, item.id)}
+				></button>
 				<div
 					id="item-{item.id}"
-					class="w-full cursor-text text-sm text-black text-center outline-none empty:before:text-black/30 empty:before:content-['Domain_Event'] font-montserrat font-medium"
+					class="relative z-10 w-full cursor-text text-sm text-black text-center outline-none empty:before:text-black/30 empty:before:content-['Domain_Event'] font-montserrat font-medium"
 					contenteditable="true"
 					role="textbox"
+					tabindex="0"
 					aria-label="Event item label"
 					aria-multiline="true"
 					bind:textContent={item.label}
+					onmousedown={(e) => e.stopPropagation()}
 				></div>
 			</article>
 		{/each}
