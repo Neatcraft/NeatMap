@@ -1,4 +1,4 @@
-export type ItemType = 'event' | 'command' | 'actor' | 'system' | 'data';
+export type ItemType = 'event' | 'command' | 'actor' | 'system' | 'data' | 'policy';
 
 export interface EventItem {
 	id: string;
@@ -9,4 +9,4 @@ export interface EventItem {
 	type: ItemType;
 }
 
-export type BoardAction = 'add-event-item' | 'manage-commands' | 'add-actor' | 'add-system' | 'add-data' | null;
+export type BoardAction = 'add-event-item' | 'manage-commands' | 'add-actor' | 'add-system' | 'add-data' | 'add-policy' | null;

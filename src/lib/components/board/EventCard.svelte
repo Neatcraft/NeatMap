@@ -16,7 +16,8 @@
 		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' },
 		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' },
 		system:  { bg: '#FCE7F3', existsColor: '#BE185D', newColor: '#16A34A' },
-		data:    { bg: '#DCFCE7', existsColor: '#15803D', newColor: '#16A34A' }
+		data:    { bg: '#DCFCE7', existsColor: '#15803D', newColor: '#16A34A' },
+		policy:  { bg: '#EDE9FE', existsColor: '#7C3AED', newColor: '#16A34A' }
 	} as const;
 
 	const PLACEHOLDER: Record<typeof item.type, string> = {
@@ -24,7 +25,8 @@
 		command: 'Command',
 		actor:   'Actor',
 		system:  'System',
-		data:    'Data'
+		data:    'Data',
+		policy:  'Policy'
 	};
 
 	const theme = $derived(THEME[item.type]);
