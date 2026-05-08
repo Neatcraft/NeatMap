@@ -18,7 +18,8 @@
 		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' },
 		system:  { bg: '#FCE7F3', existsColor: '#BE185D', newColor: '#16A34A' },
 		data:    { bg: '#DCFCE7', existsColor: '#15803D', newColor: '#16A34A' },
-		policy:  { bg: '#EDE9FE', existsColor: '#7C3AED', newColor: '#16A34A' }
+		policy:   { bg: '#EDE9FE', existsColor: '#7C3AED', newColor: '#16A34A' },
+		'hot-spot': { bg: '#FAE8FF', existsColor: '#A21CAF', newColor: '#16A34A' }
 	} as const;
 
 	const PLACEHOLDER: Record<typeof item.type, string> = {
@@ -27,7 +28,8 @@
 		actor:   'Actor',
 		system:  'System',
 		data:    'Data',
-		policy:  'Policy'
+		policy:     'Policy',
+		'hot-spot': 'Hot Spot'
 	};
 
 	const theme = $derived(THEME[item.type]);
@@ -60,7 +62,15 @@
 		</span>
 	</button>
 
+	<!-- Hot-spot alert indicator — top-left -->
+	{#if item.type === 'hot-spot'}
+		<div class="absolute left-2 top-2 z-20 flex h-5 w-5 items-center justify-center rounded-full font-barlow text-sm font-bold" style="color: {EXISTS_COLOR};">
+			!
+		</div>
+	{/if}
+
 	<!-- Exists toggle — z-20 routes clicks here via CSS stacking, no stopPropagation needed -->
+	{#if item.type !== 'hot-spot'}
 	<div class="group absolute right-2 top-2 z-20">
 		<input
 			type="checkbox"
@@ -93,6 +103,7 @@
 			Already exists
 		</span>
 	</div>
+	{/if}
 
 	<!-- Delete button — z-20, bottom-right, visible on hover -->
 	<div class="absolute bottom-2 right-2 z-20">
