@@ -6,4 +6,4 @@ export interface EventItem {
 	exists: boolean;
 }
 
-export type BoardAction = 'add-event-item' | null;
+export type BoardAction = 'add-event-item' | 'manage-commands' | null;
