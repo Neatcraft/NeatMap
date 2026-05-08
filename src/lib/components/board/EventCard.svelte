@@ -4,14 +4,17 @@
 	interface Props {
 		item: EventItem;
 		isDragging: boolean;
+		isSelected: boolean;
 		onDragStart: (e: MouseEvent) => void;
+		onSelect: () => void;
 	}
 
-	let { item, isDragging, onDragStart }: Props = $props();
+	let { item, isDragging, isSelected, onDragStart, onSelect }: Props = $props();
 
 	const THEME = {
 		event:   { bg: '#FFDCC6', existsColor: '#C44500', newColor: '#16A34A' },
-		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' }
+		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' },
+		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' }
 	} as const;
 
 	const theme = $derived(THEME[item.type]);
@@ -21,6 +24,7 @@
 
 <article
 	class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 select-none rounded-none border-l-4 flex items-center justify-center p-3"
+	class:z-10={isSelected}
 	style="left: {item.x}px; top: {item.y}px; background-color: {theme.bg}; border-left-color: {item.exists ? EXISTS_COLOR : NEW_COLOR}; box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
 >
 	<!-- Drag surface — lowest z, spans whole card -->
@@ -30,7 +34,7 @@
 		class:cursor-grabbing={isDragging}
 		aria-label="Move item"
 		aria-describedby="type-tooltip-{item.id}"
-		onmousedown={onDragStart}
+		onmousedown={(e) => { onSelect(); onDragStart(e); }}
 	>
 		<span
 			id="type-tooltip-{item.id}"
@@ -81,6 +85,7 @@
 		class="relative z-10 w-full cursor-text text-center font-montserrat text-sm font-medium text-black outline-none empty:before:text-black/30 empty:before:content-['Domain_Event']"
 		contenteditable="true"
 		role="textbox"
+		onfocus={onSelect}
 		tabindex="0"
 		aria-label="Event item label"
 		aria-multiline="true"
