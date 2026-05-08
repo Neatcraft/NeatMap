@@ -9,17 +9,23 @@
 
 	let { item, isDragging, onDragStart }: Props = $props();
 
-	const EXISTS_COLOR = '#C44500';
-	const NEW_COLOR = '#16A34A';
+	const THEME = {
+		event:   { bg: '#FFDCC6', existsColor: '#C44500', newColor: '#16A34A' },
+		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' }
+	} as const;
+
+	const theme = $derived(THEME[item.type]);
+	const EXISTS_COLOR = $derived(theme.existsColor);
+	const NEW_COLOR = $derived(theme.newColor);
 </script>
 
 <article
-	class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 select-none rounded-lg border-l-4 flex items-center justify-center p-3"
-	style="left: {item.x}px; top: {item.y}px; background-color: #FFDCC6; border-left-color: {item.exists ? EXISTS_COLOR : NEW_COLOR}; box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
+	class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 select-none rounded-none border-l-4 flex items-center justify-center p-3"
+	style="left: {item.x}px; top: {item.y}px; background-color: {theme.bg}; border-left-color: {item.exists ? EXISTS_COLOR : NEW_COLOR}; box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
 >
 	<!-- Drag surface — lowest z, spans whole card -->
 	<button
-		class="group absolute inset-0 rounded-lg"
+		class="group absolute inset-0 rounded-none"
 		class:cursor-grab={!isDragging}
 		class:cursor-grabbing={isDragging}
 		aria-label="Move item"
@@ -29,7 +35,7 @@
 		<span
 			id="type-tooltip-{item.id}"
 			role="tooltip"
-			class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#002740] px-2 py-1 font-montserrat text-xs text-white invisible group-hover:visible"
+			class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-none bg-[#002740] px-2 py-1 font-montserrat text-xs text-white invisible group-hover:visible"
 		>
 			Event
 		</span>
@@ -63,7 +69,7 @@
 		<span
 			id="tooltip-{item.id}"
 			role="tooltip"
-			class="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap rounded-lg bg-[#002740] px-2 py-1 font-montserrat text-xs text-white invisible group-hover:visible"
+			class="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap rounded-none bg-[#002740] px-2 py-1 font-montserrat text-xs text-white invisible group-hover:visible"
 		>
 			Already exists
 		</span>

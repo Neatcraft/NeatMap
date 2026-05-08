@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
 	import EventCard from './EventCard.svelte';
-	import type { BoardAction, EventItem } from './types.js';
+	import type { BoardAction, EventItem, ItemType } from './types.js';
 
 	let offsetX = $state(0);
 	let offsetY = $state(0);
@@ -49,7 +49,13 @@
 		const dy = e.clientY - startY;
 		const isClick = Math.sqrt(dx * dx + dy * dy) < CLICK_THRESHOLD;
 
-		if (isClick && activeAction === 'add-event-item') {
+		const typeByAction: Partial<Record<BoardAction, ItemType>> = {
+			'add-event-item': 'event',
+			'manage-commands': 'command'
+		};
+		const itemType = activeAction ? typeByAction[activeAction] : null;
+
+		if (isClick && itemType) {
 			const rect = boardEl!.getBoundingClientRect();
 			const id = crypto.randomUUID();
 			items.push({
@@ -57,7 +63,8 @@
 				x: e.clientX - rect.left - offsetX,
 				y: e.clientY - rect.top - offsetY,
 				label: '',
-				exists: true
+				exists: true,
+				type: itemType
 			});
 			await tick();
 			document.getElementById(`item-${id}`)?.focus();
@@ -108,7 +115,7 @@
 
 	function canvasCursor() {
 		if (draggingItemId) return 'grabbing';
-		if (activeAction === 'add-event-item') return 'crosshair';
+		if (activeAction) return 'crosshair';
 		return isPanning ? 'grabbing' : 'grab';
 	}
 </script>
