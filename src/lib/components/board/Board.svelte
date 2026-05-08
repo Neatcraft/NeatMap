@@ -1,20 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
-
-	interface EventItem {
-		id: string;
-		x: number;
-		y: number;
-		label: string;
-	}
-
-	type Action = 'add-event-item' | null;
+	import EventCard from './EventCard.svelte';
+	import type { BoardAction, EventItem } from './types.js';
 
 	let offsetX = $state(0);
 	let offsetY = $state(0);
 	let isPanning = $state(false);
-	let activeAction = $state<Action>(null);
+	let activeAction = $state<BoardAction>(null);
 	let items = $state<EventItem[]>([]);
 	let draggingItemId = $state<string | null>(null);
 	let boardEl = $state<HTMLElement | null>(null);
@@ -29,7 +22,7 @@
 	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
 
-	function selectAction(action: Action) {
+	function selectAction(action: BoardAction) {
 		activeAction = activeAction === action ? null : action;
 	}
 
@@ -63,7 +56,8 @@
 				id,
 				x: e.clientX - rect.left - offsetX,
 				y: e.clientY - rect.top - offsetY,
-				label: ''
+				label: '',
+				exists: true
 			});
 			await tick();
 			document.getElementById(`item-${id}`)?.focus();
@@ -88,7 +82,6 @@
 
 	// --- Item dragging ---
 	function startItemDrag(e: MouseEvent, itemId: string) {
-		e.stopPropagation();
 		const item = items.find((i) => i.id === itemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
@@ -142,28 +135,11 @@
 		style="transform: translate({offsetX}px, {offsetY}px);"
 	>
 		{#each items as item (item.id)}
-			<article
-				class="pointer-events-auto absolute size-36 -translate-x-1/2 -translate-y-1/2 rounded-lg flex items-center justify-center p-3 select-none"
-				style="left: {item.x}px; top: {item.y}px; background-color: #FFDCC6; box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
-			>
-				<button
-					class="absolute inset-0 rounded-lg"
-					style="cursor: {draggingItemId === item.id ? 'grabbing' : 'grab'};"
-					aria-label="Move item"
-					onmousedown={(e) => startItemDrag(e, item.id)}
-				></button>
-				<div
-					id="item-{item.id}"
-					class="relative z-10 w-full cursor-text text-sm text-black text-center outline-none empty:before:text-black/30 empty:before:content-['Domain_Event'] font-montserrat font-medium"
-					contenteditable="true"
-					role="textbox"
-					tabindex="0"
-					aria-label="Event item label"
-					aria-multiline="true"
-					bind:textContent={item.label}
-					onmousedown={(e) => e.stopPropagation()}
-				></div>
-			</article>
+			<EventCard
+				{item}
+				isDragging={draggingItemId === item.id}
+				onDragStart={(e) => startItemDrag(e, item.id)}
+			/>
 		{/each}
 	</div>
 
@@ -174,23 +150,15 @@
 	>
 		<ActionButton
 			label="Add event item"
+			tooltip="Event"
 			color="#FFDCC6"
 			iconColor="#ED7D1A"
 			isActive={activeAction === 'add-event-item'}
 			onclick={() => selectAction('add-event-item')}
 		>
 			{#snippet icon()}
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="currentColor"
-					class="h-5 w-5"
-				>
-					<path
-						fill-rule="evenodd"
-						d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z"
-						clip-rule="evenodd"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
+					<path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd" />
 				</svg>
 			{/snippet}
 		</ActionButton>
