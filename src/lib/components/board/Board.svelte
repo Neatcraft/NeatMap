@@ -2,7 +2,8 @@
 	import { tick, onMount } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
 	import EventCard from './EventCard.svelte';
-	import type { BoardAction, EventItem, ItemType } from './types.js';
+	import FrameContainer from './FrameContainer.svelte';
+	import type { BoardAction, EventItem, FrameItem, ItemType } from './types.js';
 
 	let offsetX = $state(0);
 	let offsetY = $state(0);
@@ -13,12 +14,24 @@
 	let selectedItemId = $state<string | null>(null);
 	let boardEl = $state<HTMLElement | null>(null);
 
+	let frames = $state<FrameItem[]>([]);
+	let draggingFrameId = $state<string | null>(null);
+	let selectedFrameId = $state<string | null>(null);
+	let resizingFrameId = $state<string | null>(null);
+
 	let lastX = 0;
 	let lastY = 0;
 	let startX = 0;
 	let startY = 0;
 	let grabOffsetX = 0;
 	let grabOffsetY = 0;
+	let frameGrabOffsetX = 0;
+	let frameGrabOffsetY = 0;
+	let draggedFrameItemIds: string[] = [];
+	let resizeStartW = 0;
+	let resizeStartH = 0;
+	let resizeStartX = 0;
+	let resizeStartY = 0;
 
 	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
@@ -28,13 +41,18 @@
 		selectedItemId = null;
 	}
 
+	function deleteFrame(id: string) {
+		frames = frames.filter((f) => f.id !== id);
+		selectedFrameId = null;
+	}
+
 	onMount(() => {
 		function handleDelete(e: KeyboardEvent) {
 			if (e.key !== 'Delete' && e.key !== 'Backspace') return;
 			const target = e.target as HTMLElement;
 			if (target.isContentEditable) return;
-			if (!selectedItemId) return;
-			deleteItem(selectedItemId);
+			if (selectedItemId) deleteItem(selectedItemId);
+			else if (selectedFrameId) deleteFrame(selectedFrameId);
 		}
 		document.addEventListener('keydown', handleDelete);
 		return () => document.removeEventListener('keydown', handleDelete);
@@ -47,6 +65,7 @@
 	// --- Board panning ---
 	function onMouseDown(e: MouseEvent) {
 		selectedItemId = null;
+		selectedFrameId = null;
 		isPanning = true;
 		startX = e.clientX;
 		startY = e.clientY;
@@ -67,6 +86,20 @@
 		const dx = e.clientX - startX;
 		const dy = e.clientY - startY;
 		const isClick = Math.sqrt(dx * dx + dy * dy) < CLICK_THRESHOLD;
+
+		if (isClick && activeAction === 'add-frame') {
+			const rect = boardEl!.getBoundingClientRect();
+			const id = crypto.randomUUID();
+			frames.push({
+				id,
+				x: e.clientX - rect.left - offsetX - 175,
+				y: e.clientY - rect.top - offsetY - 125,
+				width: 350,
+				height: 250,
+				label: ''
+			});
+			selectedFrameId = id;
+		}
 
 		const typeByAction: Partial<Record<BoardAction, ItemType>> = {
 			'add-event-item': 'event',
@@ -111,6 +144,77 @@
 		offsetY += move[1];
 	}
 
+	// --- Frame dragging ---
+	function itemInsideFrame(item: EventItem, frame: FrameItem): boolean {
+		return (
+			item.x >= frame.x &&
+			item.x <= frame.x + frame.width &&
+			item.y >= frame.y &&
+			item.y <= frame.y + frame.height
+		);
+	}
+
+	function startFrameDrag(e: MouseEvent, frameId: string) {
+		const frame = frames.find((f) => f.id === frameId);
+		if (!frame || !boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		frameGrabOffsetX = e.clientX - rect.left - offsetX - frame.x;
+		frameGrabOffsetY = e.clientY - rect.top - offsetY - frame.y;
+		draggedFrameItemIds = items.filter((i) => itemInsideFrame(i, frame)).map((i) => i.id);
+		draggingFrameId = frameId;
+		document.addEventListener('mousemove', onFrameDragMove);
+		document.addEventListener('mouseup', onFrameDragEnd);
+	}
+
+	function onFrameDragMove(e: MouseEvent) {
+		const frame = frames.find((f) => f.id === draggingFrameId);
+		if (!frame || !boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		const newX = e.clientX - rect.left - offsetX - frameGrabOffsetX;
+		const newY = e.clientY - rect.top - offsetY - frameGrabOffsetY;
+		const dx = newX - frame.x;
+		const dy = newY - frame.y;
+		frame.x = newX;
+		frame.y = newY;
+		for (const id of draggedFrameItemIds) {
+			const item = items.find((i) => i.id === id);
+			if (item) { item.x += dx; item.y += dy; }
+		}
+	}
+
+	function onFrameDragEnd() {
+		draggingFrameId = null;
+		draggedFrameItemIds = [];
+		document.removeEventListener('mousemove', onFrameDragMove);
+		document.removeEventListener('mouseup', onFrameDragEnd);
+	}
+
+	// --- Frame resizing ---
+	function startFrameResize(e: MouseEvent, frameId: string) {
+		const frame = frames.find((f) => f.id === frameId);
+		if (!frame) return;
+		resizeStartW = frame.width;
+		resizeStartH = frame.height;
+		resizeStartX = e.clientX;
+		resizeStartY = e.clientY;
+		resizingFrameId = frameId;
+		document.addEventListener('mousemove', onFrameResizeMove);
+		document.addEventListener('mouseup', onFrameResizeEnd);
+	}
+
+	function onFrameResizeMove(e: MouseEvent) {
+		const frame = frames.find((f) => f.id === resizingFrameId);
+		if (!frame) return;
+		frame.width = Math.max(150, resizeStartW + e.clientX - resizeStartX);
+		frame.height = Math.max(100, resizeStartH + e.clientY - resizeStartY);
+	}
+
+	function onFrameResizeEnd() {
+		resizingFrameId = null;
+		document.removeEventListener('mousemove', onFrameResizeMove);
+		document.removeEventListener('mouseup', onFrameResizeEnd);
+	}
+
 	// --- Item dragging ---
 	function startItemDrag(e: MouseEvent, itemId: string) {
 		const item = items.find((i) => i.id === itemId);
@@ -138,7 +242,8 @@
 	}
 
 	function canvasCursor() {
-		if (draggingItemId) return 'grabbing';
+		if (draggingItemId || draggingFrameId) return 'grabbing';
+		if (resizingFrameId) return 'se-resize';
 		if (activeAction) return 'crosshair';
 		return isPanning ? 'grabbing' : 'grab';
 	}
@@ -165,6 +270,19 @@
 		class="pointer-events-none absolute inset-0 z-5"
 		style="transform: translate({offsetX}px, {offsetY}px);"
 	>
+		{#each frames as frame (frame.id)}
+			<FrameContainer
+				{frame}
+				isSelected={selectedFrameId === frame.id}
+				isDragging={draggingFrameId === frame.id}
+				interactive={activeAction === null}
+				onDragStart={(e) => startFrameDrag(e, frame.id)}
+				onResizeStart={(e) => startFrameResize(e, frame.id)}
+				onSelect={() => (selectedFrameId = frame.id)}
+				onDelete={() => deleteFrame(frame.id)}
+			/>
+		{/each}
+
 		{#each items as item (item.id)}
 			<EventCard
 				{item}
@@ -182,6 +300,21 @@
 		style="box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
 		aria-label="Action menu"
 	>
+		<ActionButton
+			label="Add bounded context"
+			tooltip="Bounded Context"
+			color="#F1F5F9"
+			iconColor="#64748B"
+			isActive={activeAction === 'add-frame'}
+			onclick={() => selectAction('add-frame')}
+		>
+			{#snippet icon()}
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
+					<path fill-rule="evenodd" d="M1.5 7.125c0-1.036.84-1.875 1.875-1.875h6c1.036 0 1.875.84 1.875 1.875v3.75c0 1.035-.84 1.875-1.875 1.875h-6A1.875 1.875 0 0 1 1.5 10.875v-3.75Zm12 1.5c0-1.036.84-1.875 1.875-1.875h5.25c1.035 0 1.875.84 1.875 1.875v8.25c0 1.035-.84 1.875-1.875 1.875h-5.25a1.875 1.875 0 0 1-1.875-1.875v-8.25ZM3 16.125c0-1.036.84-1.875 1.875-1.875h5.25c1.035 0 1.875.84 1.875 1.875v2.25c0 1.035-.84 1.875-1.875 1.875h-5.25A1.875 1.875 0 0 1 3 18.375v-2.25Z" clip-rule="evenodd" />
+				</svg>
+			{/snippet}
+		</ActionButton>
+
 		<ActionButton
 			label="Add event item"
 			tooltip="Event"
