@@ -14,12 +14,21 @@
 	const THEME = {
 		event:   { bg: '#FFDCC6', existsColor: '#C44500', newColor: '#16A34A' },
 		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' },
-		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' }
+		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' },
+		system:  { bg: '#FCE7F3', existsColor: '#BE185D', newColor: '#16A34A' }
 	} as const;
+
+	const PLACEHOLDER: Record<typeof item.type, string> = {
+		event:   'Domain Event',
+		command: 'Command',
+		actor:   'Actor',
+		system:  'System'
+	};
 
 	const theme = $derived(THEME[item.type]);
 	const EXISTS_COLOR = $derived(theme.existsColor);
 	const NEW_COLOR = $derived(theme.newColor);
+	const placeholder = $derived(PLACEHOLDER[item.type]);
 </script>
 
 <article
@@ -82,7 +91,8 @@
 	<!-- Editable text — z-10, above drag button; z-index stacking routes clicks here, no stopPropagation needed -->
 	<div
 		id="item-{item.id}"
-		class="relative z-10 w-full cursor-text text-center font-montserrat text-sm font-medium text-black outline-none empty:before:text-black/30 empty:before:content-['Domain_Event']"
+		class="placeholder relative z-10 w-full cursor-text text-center font-montserrat text-sm font-medium text-black outline-none"
+		data-placeholder={placeholder}
 		contenteditable="true"
 		role="textbox"
 		onfocus={onSelect}
@@ -92,3 +102,10 @@
 		bind:textContent={item.label}
 	></div>
 </article>
+
+<style>
+	.placeholder:empty::before {
+		content: attr(data-placeholder);
+		color: rgba(0, 0, 0, 0.3);
+	}
+</style>
