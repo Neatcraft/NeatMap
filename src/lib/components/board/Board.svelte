@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, onMount } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
 	import EventCard from './EventCard.svelte';
 	import type { BoardAction, EventItem, ItemType } from './types.js';
@@ -22,6 +22,23 @@
 
 	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
+
+	function deleteItem(id: string) {
+		items = items.filter((i) => i.id !== id);
+		selectedItemId = null;
+	}
+
+	onMount(() => {
+		function handleDelete(e: KeyboardEvent) {
+			if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+			const target = e.target as HTMLElement;
+			if (target.isContentEditable) return;
+			if (!selectedItemId) return;
+			deleteItem(selectedItemId);
+		}
+		document.addEventListener('keydown', handleDelete);
+		return () => document.removeEventListener('keydown', handleDelete);
+	});
 
 	function selectAction(action: BoardAction) {
 		activeAction = activeAction === action ? null : action;
@@ -154,6 +171,7 @@
 				isSelected={selectedItemId === item.id}
 				onDragStart={(e) => startItemDrag(e, item.id)}
 				onSelect={() => (selectedItemId = item.id)}
+				onDelete={() => deleteItem(item.id)}
 			/>
 		{/each}
 	</div>
