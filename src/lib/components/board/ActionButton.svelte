@@ -14,8 +14,8 @@
 </script>
 
 <button
-	class="flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150 hover:scale-[1.08] hover:shadow-sm active:scale-95"
-	style="background-color: {color}; {isActive ? `box-shadow: 0 0 0 2px ${iconColor};` : ''}"
+	class="flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-150 hover:scale-[1.08] hover:shadow-sm active:scale-95"
+	style="background-color: {color}; {isActive ? `box-shadow: 0 0 0 4px #ED7D1A;` : ''}"
 	aria-label={label}
 	aria-pressed={isActive}
 	{onclick}

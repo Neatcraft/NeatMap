@@ -1,3 +1,22 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+@theme {
+	--font-barlow: 'Barlow', sans-serif;
+	--font-montserrat: 'Montserrat', sans-serif;
+}
+
+@layer base {
+	body {
+		font-family: var(--font-montserrat);
+		font-weight: 400;
+	}
+
+	h1, h2, h3, h4, h5, h6 {
+		font-family: var(--font-barlow);
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: -0.05em;
+	}
+}
