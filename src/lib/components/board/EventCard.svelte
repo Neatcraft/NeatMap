@@ -15,14 +15,16 @@
 		event:   { bg: '#FFDCC6', existsColor: '#C44500', newColor: '#16A34A' },
 		command: { bg: '#DBEAFE', existsColor: '#2663EB', newColor: '#16A34A' },
 		actor:   { bg: '#FEF9C3', existsColor: '#CA8A03', newColor: '#16A34A' },
-		system:  { bg: '#FCE7F3', existsColor: '#BE185D', newColor: '#16A34A' }
+		system:  { bg: '#FCE7F3', existsColor: '#BE185D', newColor: '#16A34A' },
+		data:    { bg: '#DCFCE7', existsColor: '#15803D', newColor: '#16A34A' }
 	} as const;
 
 	const PLACEHOLDER: Record<typeof item.type, string> = {
 		event:   'Domain Event',
 		command: 'Command',
 		actor:   'Actor',
-		system:  'System'
+		system:  'System',
+		data:    'Data'
 	};
 
 	const theme = $derived(THEME[item.type]);
