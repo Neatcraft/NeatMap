@@ -7,6 +7,12 @@ export interface EventItem {
 	label: string;
 	exists: boolean;
 	type: ItemType;
+	groupId?: string;
+}
+
+export interface Group {
+	id: string;
+	itemIds: string[];
 }
 
 export type BoardAction = 'add-event-item' | 'manage-commands' | 'add-actor' | 'add-system' | 'add-data' | 'add-policy' | 'add-hot-spot' | 'add-frame' | null;

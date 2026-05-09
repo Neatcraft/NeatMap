@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { tick, onMount } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
-	import { EventCard, CommandCard, ActorCard, SystemCard, DataCard, PolicyCard, HotSpotCard, BoundedContext } from './event-storming/index.js';
-	import type { BoardAction, EventItem, FrameItem, ItemType } from './types.js';
+	import { EventCard, CommandCard, ActorCard, SystemCard, DataCard, PolicyCard, HotSpotCard, BoundedContext, GroupBackground } from './event-storming/index.js';
+	import type { BoardAction, EventItem, FrameItem, Group, ItemType } from './types.js';
 
 	const CARD_MAP: Record<ItemType, typeof EventCard> = {
 		event: EventCard,
@@ -30,6 +30,9 @@
 	let selectedFrameId = $state<string | null>(null);
 	let resizingFrameId = $state<string | null>(null);
 
+	let groups = $state<Group[]>([]);
+	let groupTargetId = $state<string | null>(null);
+
 	let lastX = 0;
 	let lastY = 0;
 	let startX = 0;
@@ -39,6 +42,7 @@
 	let frameGrabOffsetX = 0;
 	let frameGrabOffsetY = 0;
 	let draggedFrameItemIds: string[] = [];
+	let draggedGroupItemIds: string[] = [];
 	let resizeStartW = 0;
 	let resizeStartH = 0;
 	let resizeStartX = 0;
@@ -46,8 +50,30 @@
 
 	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
+	const GROUP_DISTANCE = 100;
+	const GROUPABLE: Partial<Record<ItemType, ItemType>> = { event: 'command', command: 'event' };
+
+	function findGroupTarget(itemId: string): EventItem | null {
+		const item = items.find((i) => i.id === itemId);
+		if (!item || item.groupId) return null;
+		const compatibleType = GROUPABLE[item.type];
+		if (!compatibleType) return null;
+		return items.find(
+			(other) =>
+				other.id !== itemId &&
+				!other.groupId &&
+				other.type === compatibleType &&
+				Math.hypot(item.x - other.x, item.y - other.y) < GROUP_DISTANCE
+		) ?? null;
+	}
 
 	function deleteItem(id: string) {
+		const item = items.find((i) => i.id === id);
+		if (item?.groupId) {
+			const gid = item.groupId;
+			items.forEach((i) => { if (i.groupId === gid) i.groupId = undefined; });
+			groups = groups.filter((g) => g.id !== gid);
+		}
 		items = items.filter((i) => i.id !== id);
 		selectedItemId = null;
 	}
@@ -260,6 +286,9 @@
 		grabOffsetX = (e.clientX - rect.left - offsetX) / scale - item.x;
 		grabOffsetY = (e.clientY - rect.top - offsetY) / scale - item.y;
 		draggingItemId = itemId;
+		draggedGroupItemIds = item.groupId
+			? (groups.find((g) => g.id === item.groupId)?.itemIds ?? [])
+			: [];
 		document.addEventListener('mousemove', onDragMove);
 		document.addEventListener('mouseup', onDragEnd);
 	}
@@ -268,12 +297,42 @@
 		const item = items.find((i) => i.id === draggingItemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		item.x = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
-		item.y = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
+		const newX = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
+		const newY = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
+
+		if (draggedGroupItemIds.length > 1) {
+			const dx = newX - item.x;
+			const dy = newY - item.y;
+			for (const id of draggedGroupItemIds) {
+				const gi = items.find((i) => i.id === id);
+				if (gi) { gi.x += dx; gi.y += dy; }
+			}
+		} else {
+			item.x = newX;
+			item.y = newY;
+			groupTargetId = findGroupTarget(item.id)?.id ?? null;
+		}
 	}
 
 	function onDragEnd() {
+		if (groupTargetId && draggingItemId) {
+			const item = items.find((i) => i.id === draggingItemId);
+			const target = items.find((i) => i.id === groupTargetId);
+			if (item && target) {
+				const gid = crypto.randomUUID();
+				const cx = (item.x + target.x) / 2;
+				const cy = (item.y + target.y) / 2;
+				const [cmd, evt] = item.type === 'command' ? [item, target] : [target, item];
+				cmd.x = cx - 80; cmd.y = cy;
+				evt.x = cx + 80; evt.y = cy;
+				cmd.groupId = gid;
+				evt.groupId = gid;
+				groups.push({ id: gid, itemIds: [cmd.id, evt.id] });
+			}
+		}
+		groupTargetId = null;
 		draggingItemId = null;
+		draggedGroupItemIds = [];
 		document.removeEventListener('mousemove', onDragMove);
 		document.removeEventListener('mouseup', onDragEnd);
 	}
@@ -321,6 +380,23 @@
 				onDelete={() => deleteFrame(frame.id)}
 			/>
 		{/each}
+
+		{#each groups as group (group.id)}
+			{@const groupItems = group.itemIds.map((id) => items.find((i) => i.id === id)).filter((i) => i !== undefined)}
+			{#if groupItems.length === group.itemIds.length}
+				<GroupBackground items={groupItems} />
+			{/if}
+		{/each}
+
+		{#if groupTargetId}
+			{@const target = items.find((i) => i.id === groupTargetId)}
+			{#if target}
+				<div
+					class="absolute pointer-events-none z-30"
+					style="left: {target.x}px; top: {target.y}px; width: 144px; height: 144px; transform: translate(-50%, -50%); box-shadow: 0 0 0 4px #002740, 0 0 20px rgba(0,39,64,0.4); border-radius: 0;"
+				></div>
+			{/if}
+		{/if}
 
 		{#each items as item (item.id)}
 			{@const CardComponent = CARD_MAP[item.type]}

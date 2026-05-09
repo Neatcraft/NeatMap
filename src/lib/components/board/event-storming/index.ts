@@ -6,3 +6,4 @@ export { default as DataCard } from './cards/DataCard.svelte';
 export { default as PolicyCard } from './cards/PolicyCard.svelte';
 export { default as HotSpotCard } from './cards/HotSpotCard.svelte';
 export { default as BoundedContext } from './BoundedContext.svelte';
+export { GroupBackground } from './group/index.js';
