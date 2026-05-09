@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FrameItem } from './types.js';
+	import type { FrameItem } from '../types.js';
 
 	interface Props {
 		frame: FrameItem;

@@ -1,6 +1,11 @@
 {
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "svelte"
   ],
-  "enableAllProjectMcpServers": true
+  "permissions": {
+    "allow": [
+      "Bash(/nix/store/dwqksglz5298j1ba41cjnvg8fdgb3ih7-nodejs-25.2.1/bin/npm run *)"
+    ]
+  }
 }

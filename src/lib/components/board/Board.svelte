@@ -1,9 +1,18 @@
 <script lang="ts">
 	import { tick, onMount } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
-	import EventCard from './EventCard.svelte';
-	import FrameContainer from './FrameContainer.svelte';
+	import { EventCard, CommandCard, ActorCard, SystemCard, DataCard, PolicyCard, HotSpotCard, BoundedContext } from './event-storming/index.js';
 	import type { BoardAction, EventItem, FrameItem, ItemType } from './types.js';
+
+	const CARD_MAP: Record<ItemType, typeof EventCard> = {
+		event: EventCard,
+		command: CommandCard,
+		actor: ActorCard,
+		system: SystemCard,
+		data: DataCard,
+		policy: PolicyCard,
+		'hot-spot': HotSpotCard
+	};
 
 	let offsetX = $state(0);
 	let offsetY = $state(0);
@@ -271,7 +280,7 @@
 		style="transform: translate({offsetX}px, {offsetY}px);"
 	>
 		{#each frames as frame (frame.id)}
-			<FrameContainer
+			<BoundedContext
 				{frame}
 				isSelected={selectedFrameId === frame.id}
 				isDragging={draggingFrameId === frame.id}
@@ -284,7 +293,8 @@
 		{/each}
 
 		{#each items as item (item.id)}
-			<EventCard
+			{@const CardComponent = CARD_MAP[item.type]}
+			<CardComponent
 				{item}
 				isDragging={draggingItemId === item.id}
 				isSelected={selectedItemId === item.id}
