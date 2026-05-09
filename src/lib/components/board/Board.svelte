@@ -67,9 +67,10 @@
 	function findGroupTarget(itemId: string): EventItem | null {
 		const item = items.find((i) => i.id === itemId);
 		if (!item || item.groupId) return null;
-		const compatibleTypes: ItemType[] = item.type === 'actor'
-			? ['event', 'command']
-			: GROUPABLE[item.type] ? [GROUPABLE[item.type]!] : [];
+		const compatibleTypes: ItemType[] =
+			item.type === 'actor' || item.type === 'system'
+				? ['event', 'command']
+				: GROUPABLE[item.type] ? [GROUPABLE[item.type]!] : [];
 		if (!compatibleTypes.length) return null;
 		return items.find(
 			(other) =>
@@ -92,12 +93,14 @@
 			.filter((i): i is EventItem => i !== undefined);
 		const evt = gItems.find((i) => i.type === 'event');
 		const cmd = gItems.find((i) => i.type === 'command');
+		const sys = gItems.find((i) => i.type === 'system');
 		const actors = gItems.filter((i) => i.type === 'actor');
 		const anchor = evt ?? cmd;
 		if (!anchor) return;
 		const ay = anchor.y;
 		let curX = anchor.x;
 		if (evt) { evt.x = curX; evt.y = ay; curX -= SPACING; }
+		if (sys) { sys.x = anchor.x; sys.y = ay - SPACING; }
 		if (cmd) { cmd.x = curX; cmd.y = ay; curX -= SPACING; }
 		actors.forEach((actor, idx) => { actor.x = curX; actor.y = ay + idx * SPACING; });
 	}
