@@ -33,6 +33,7 @@
 	let groups = $state<Group[]>([]);
 	let groupTargetId = $state<string | null>(null);
 	let draggingGroupId = $state<string | null>(null);
+	let groupJoinTargetId = $state<string | null>(null);
 	let frozenGroupPositions = $state<Record<string, { x: number; y: number }>>({});
 
 	let lastX = 0;
@@ -56,18 +57,49 @@
 	const GROUP_DISTANCE = 100;
 	const GROUPABLE: Partial<Record<ItemType, ItemType>> = { event: 'command', command: 'event' };
 
+	function canJoinGroup(item: EventItem, groupId: string): boolean {
+		if (item.type === 'actor') return true;
+		const group = groups.find((g) => g.id === groupId);
+		if (!group) return false;
+		return !group.itemIds.some((id) => items.find((i) => i.id === id)?.type === item.type);
+	}
+
 	function findGroupTarget(itemId: string): EventItem | null {
 		const item = items.find((i) => i.id === itemId);
 		if (!item || item.groupId) return null;
-		const compatibleType = GROUPABLE[item.type];
-		if (!compatibleType) return null;
+		const compatibleTypes: ItemType[] = item.type === 'actor'
+			? ['event', 'command']
+			: GROUPABLE[item.type] ? [GROUPABLE[item.type]!] : [];
+		if (!compatibleTypes.length) return null;
 		return items.find(
 			(other) =>
 				other.id !== itemId &&
 				!other.groupId &&
-				other.type === compatibleType &&
+				compatibleTypes.includes(other.type) &&
 				Math.hypot(item.x - other.x, item.y - other.y) < GROUP_DISTANCE
 		) ?? null;
+	}
+
+	const SPACING = 160;
+	const GROUP_HALF = 72;
+	const GROUP_PAD = 32;
+
+	function layoutGroup(groupId: string) {
+		const group = groups.find((g) => g.id === groupId);
+		if (!group) return;
+		const gItems = group.itemIds
+			.map((id) => items.find((i) => i.id === id))
+			.filter((i): i is EventItem => i !== undefined);
+		const evt = gItems.find((i) => i.type === 'event');
+		const cmd = gItems.find((i) => i.type === 'command');
+		const actors = gItems.filter((i) => i.type === 'actor');
+		const anchor = evt ?? cmd;
+		if (!anchor) return;
+		const ay = anchor.y;
+		let curX = anchor.x;
+		if (evt) { evt.x = curX; evt.y = ay; curX -= SPACING; }
+		if (cmd) { cmd.x = curX; cmd.y = ay; curX -= SPACING; }
+		actors.forEach((actor, idx) => { actor.x = curX; actor.y = ay + idx * SPACING; });
 	}
 
 	function deleteItem(id: string) {
@@ -337,14 +369,45 @@
 		document.addEventListener('mouseup', onDragEnd);
 	}
 
+	function groupBoundsContain(partnerIds: string[], px: number, py: number): boolean {
+		const positions = partnerIds
+			.map((id) => frozenGroupPositions[id] ?? items.find((i) => i.id === id))
+			.filter((p): p is { x: number; y: number } => p !== undefined);
+		if (!positions.length) return false;
+		const minX = Math.min(...positions.map((p) => p.x)) - GROUP_HALF - GROUP_PAD;
+		const maxX = Math.max(...positions.map((p) => p.x)) + GROUP_HALF + GROUP_PAD;
+		const minY = Math.min(...positions.map((p) => p.y)) - GROUP_HALF - GROUP_PAD;
+		const maxY = Math.max(...positions.map((p) => p.y)) + GROUP_HALF + GROUP_PAD;
+		return px >= minX && px <= maxX && py >= minY && py <= maxY;
+	}
+
 	function onDragMove(e: MouseEvent) {
 		const item = items.find((i) => i.id === draggingItemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
 		item.x = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
 		item.y = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
-		if (!item.groupId) {
-			groupTargetId = findGroupTarget(item.id)?.id ?? null;
+		if (item.groupId) {
+			const group = groups.find((g) => g.id === item.groupId);
+			const partnerIds = group?.itemIds.filter((id) => id !== item.id) ?? [];
+			groupJoinTargetId = groupBoundsContain(partnerIds, item.x, item.y) ? item.groupId : null;
+		} else {
+			groupJoinTargetId = null;
+			for (const group of groups) {
+				const gItems = group.itemIds
+					.map((id) => items.find((i) => i.id === id))
+					.filter((i): i is EventItem => i !== undefined);
+				if (!gItems.length) continue;
+				const minX = Math.min(...gItems.map((i) => i.x)) - GROUP_HALF - GROUP_PAD;
+				const maxX = Math.max(...gItems.map((i) => i.x)) + GROUP_HALF + GROUP_PAD;
+				const minY = Math.min(...gItems.map((i) => i.y)) - GROUP_HALF - GROUP_PAD;
+				const maxY = Math.max(...gItems.map((i) => i.y)) + GROUP_HALF + GROUP_PAD;
+				if (item.x >= minX && item.x <= maxX && item.y >= minY && item.y <= maxY && canJoinGroup(item, group.id)) {
+					groupJoinTargetId = group.id;
+					break;
+				}
+			}
+			groupTargetId = groupJoinTargetId ? null : (findGroupTarget(item.id)?.id ?? null);
 		}
 	}
 
@@ -352,21 +415,13 @@
 		const item = items.find((i) => i.id === draggingItemId);
 
 		if (item?.groupId) {
-			// Check if item drifted far enough from its partner to detach
 			const gid = item.groupId;
-			const group = groups.find((g) => g.id === gid);
-			if (group) {
-				const partners = group.itemIds
-					.filter((id) => id !== item.id)
-					.map((id) => items.find((i) => i.id === id))
-					.filter((i): i is EventItem => i !== undefined);
-				const stillClose = partners.some(
-					(p) => Math.hypot(item.x - p.x, item.y - p.y) < GROUP_DISTANCE
-				);
-				if (!stillClose) {
+			// groupJoinTargetId === gid means item is still inside group bounds → keep it
+			if (groupJoinTargetId !== gid) {
+				const group = groups.find((g) => g.id === gid);
+				if (group) {
 					item.groupId = undefined;
 					const remaining = group.itemIds.filter((id) => id !== item.id);
-					// Dissolve group if only 1 card left
 					if (remaining.length <= 1) {
 						remaining.forEach((id) => {
 							const i = items.find((i) => i.id === id);
@@ -377,26 +432,32 @@
 						groups = groups.map((g) =>
 							g.id === gid ? { ...g, itemIds: remaining } : g
 						);
+						layoutGroup(gid);
 					}
 				}
 			}
+		} else if (groupJoinTargetId && item && canJoinGroup(item, groupJoinTargetId)) {
+			// Join an existing group
+			const group = groups.find((g) => g.id === groupJoinTargetId);
+			if (group && !group.itemIds.includes(item.id)) {
+				item.groupId = groupJoinTargetId;
+				group.itemIds.push(item.id);
+				layoutGroup(groupJoinTargetId);
+			}
 		} else if (groupTargetId && draggingItemId) {
-			// Form a new group
+			// Form a new 2-item group
 			const target = items.find((i) => i.id === groupTargetId);
 			if (item && target) {
 				const gid = crypto.randomUUID();
-				const cx = (item.x + target.x) / 2;
-				const cy = (item.y + target.y) / 2;
-				const [cmd, evt] = item.type === 'command' ? [item, target] : [target, item];
-				cmd.x = cx - 80; cmd.y = cy;
-				evt.x = cx + 80; evt.y = cy;
-				cmd.groupId = gid;
-				evt.groupId = gid;
-				groups.push({ id: gid, itemIds: [cmd.id, evt.id] });
+				item.groupId = gid;
+				target.groupId = gid;
+				groups.push({ id: gid, itemIds: [item.id, target.id] });
+				layoutGroup(gid);
 			}
 		}
 
 		groupTargetId = null;
+		groupJoinTargetId = null;
 		draggingItemId = null;
 		frozenGroupPositions = {};
 		document.removeEventListener('mousemove', onDragMove);
@@ -457,6 +518,7 @@
 				<GroupBackground
 					items={displayItems}
 					isDragging={draggingGroupId === group.id}
+					isJoinTarget={groupJoinTargetId === group.id}
 					onDragStart={(e) => startGroupDrag(e, group.id)}
 				/>
 			{/if}

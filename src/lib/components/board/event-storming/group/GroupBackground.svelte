@@ -4,10 +4,11 @@
 	interface Props {
 		items: EventItem[];
 		isDragging: boolean;
+		isJoinTarget: boolean;
 		onDragStart: (e: MouseEvent) => void;
 	}
 
-	let { items, isDragging, onDragStart }: Props = $props();
+	let { items, isDragging, isJoinTarget, onDragStart }: Props = $props();
 
 	const HALF = 72;
 	const PAD = 32;
@@ -28,8 +29,10 @@
 		width: {maxX - minX}px;
 		height: {maxY - minY}px;
 		background: rgba(226, 232, 240, 0.72);
-		border: 1.5px solid rgba(203, 213, 225, 0.9);
-		box-shadow: 0 4px 24px rgba(0,39,64,0.09), inset 0 1px 0 rgba(255,255,255,0.7);
+		border: {isJoinTarget ? '2px solid #002740' : '1.5px solid rgba(203, 213, 225, 0.9)'};
+		box-shadow: {isJoinTarget
+			? '0 0 0 4px rgba(0,39,64,0.15), 0 4px 24px rgba(0,39,64,0.09)'
+			: '0 4px 24px rgba(0,39,64,0.09), inset 0 1px 0 rgba(255,255,255,0.7)'};
 	"
 	onmousedown={onDragStart}
 ></div>
