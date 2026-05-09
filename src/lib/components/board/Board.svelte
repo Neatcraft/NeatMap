@@ -16,7 +16,9 @@
 
 	let offsetX = $state(0);
 	let offsetY = $state(0);
+	let scale = $state(1);
 	let isPanning = $state(false);
+	let isLeftDown = $state(false);
 	let activeAction = $state<BoardAction>(null);
 	let items = $state<EventItem[]>([]);
 	let draggingItemId = $state<string | null>(null);
@@ -71,15 +73,21 @@
 		activeAction = activeAction === action ? null : action;
 	}
 
-	// --- Board panning ---
+	// --- Board panning (right-click drag) + left-click creation ---
 	function onMouseDown(e: MouseEvent) {
-		selectedItemId = null;
-		selectedFrameId = null;
-		isPanning = true;
-		startX = e.clientX;
-		startY = e.clientY;
-		lastX = e.clientX;
-		lastY = e.clientY;
+		if (e.button === 2) {
+			isPanning = true;
+			lastX = e.clientX;
+			lastY = e.clientY;
+			startX = e.clientX;
+			startY = e.clientY;
+		} else if (e.button === 0) {
+			selectedItemId = null;
+			selectedFrameId = null;
+			isLeftDown = true;
+			startX = e.clientX;
+			startY = e.clientY;
+		}
 	}
 
 	function onMouseMove(e: MouseEvent) {
@@ -91,7 +99,13 @@
 	}
 
 	async function onMouseUp(e: MouseEvent) {
-		if (!isPanning) return;
+		if (e.button === 2) {
+			isPanning = false;
+			return;
+		}
+		if (e.button !== 0 || !isLeftDown) return;
+		isLeftDown = false;
+
 		const dx = e.clientX - startX;
 		const dy = e.clientY - startY;
 		const isClick = Math.sqrt(dx * dx + dy * dy) < CLICK_THRESHOLD;
@@ -99,14 +113,9 @@
 		if (isClick && activeAction === 'add-frame') {
 			const rect = boardEl!.getBoundingClientRect();
 			const id = crypto.randomUUID();
-			frames.push({
-				id,
-				x: e.clientX - rect.left - offsetX - 175,
-				y: e.clientY - rect.top - offsetY - 125,
-				width: 350,
-				height: 250,
-				label: ''
-			});
+			const wx = (e.clientX - rect.left - offsetX) / scale;
+			const wy = (e.clientY - rect.top - offsetY) / scale;
+			frames.push({ id, x: wx - 175, y: wy - 125, width: 350, height: 250, label: '' });
 			selectedFrameId = id;
 		}
 
@@ -126,8 +135,8 @@
 			const id = crypto.randomUUID();
 			items.push({
 				id,
-				x: e.clientX - rect.left - offsetX,
-				y: e.clientY - rect.top - offsetY,
+				x: (e.clientX - rect.left - offsetX) / scale,
+				y: (e.clientY - rect.top - offsetY) / scale,
 				label: '',
 				exists: true,
 				type: itemType
@@ -135,8 +144,27 @@
 			await tick();
 			document.getElementById(`item-${id}`)?.focus();
 		}
+	}
 
+	function onMouseLeave() {
 		isPanning = false;
+		isLeftDown = false;
+	}
+
+	function onContextMenu(e: MouseEvent) {
+		e.preventDefault();
+	}
+
+	function onWheel(e: WheelEvent) {
+		e.preventDefault();
+		const rect = boardEl!.getBoundingClientRect();
+		const mouseX = e.clientX - rect.left;
+		const mouseY = e.clientY - rect.top;
+		const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+		const newScale = Math.max(0.1, Math.min(5, scale * factor));
+		offsetX = mouseX - (mouseX - offsetX) * (newScale / scale);
+		offsetY = mouseY - (mouseY - offsetY) * (newScale / scale);
+		scale = newScale;
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
@@ -167,8 +195,8 @@
 		const frame = frames.find((f) => f.id === frameId);
 		if (!frame || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		frameGrabOffsetX = e.clientX - rect.left - offsetX - frame.x;
-		frameGrabOffsetY = e.clientY - rect.top - offsetY - frame.y;
+		frameGrabOffsetX = (e.clientX - rect.left - offsetX) / scale - frame.x;
+		frameGrabOffsetY = (e.clientY - rect.top - offsetY) / scale - frame.y;
 		draggedFrameItemIds = items.filter((i) => itemInsideFrame(i, frame)).map((i) => i.id);
 		draggingFrameId = frameId;
 		document.addEventListener('mousemove', onFrameDragMove);
@@ -179,8 +207,8 @@
 		const frame = frames.find((f) => f.id === draggingFrameId);
 		if (!frame || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		const newX = e.clientX - rect.left - offsetX - frameGrabOffsetX;
-		const newY = e.clientY - rect.top - offsetY - frameGrabOffsetY;
+		const newX = (e.clientX - rect.left - offsetX) / scale - frameGrabOffsetX;
+		const newY = (e.clientY - rect.top - offsetY) / scale - frameGrabOffsetY;
 		const dx = newX - frame.x;
 		const dy = newY - frame.y;
 		frame.x = newX;
@@ -214,8 +242,8 @@
 	function onFrameResizeMove(e: MouseEvent) {
 		const frame = frames.find((f) => f.id === resizingFrameId);
 		if (!frame) return;
-		frame.width = Math.max(150, resizeStartW + e.clientX - resizeStartX);
-		frame.height = Math.max(100, resizeStartH + e.clientY - resizeStartY);
+		frame.width = Math.max(150, resizeStartW + (e.clientX - resizeStartX) / scale);
+		frame.height = Math.max(100, resizeStartH + (e.clientY - resizeStartY) / scale);
 	}
 
 	function onFrameResizeEnd() {
@@ -229,8 +257,8 @@
 		const item = items.find((i) => i.id === itemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		grabOffsetX = e.clientX - rect.left - offsetX - item.x;
-		grabOffsetY = e.clientY - rect.top - offsetY - item.y;
+		grabOffsetX = (e.clientX - rect.left - offsetX) / scale - item.x;
+		grabOffsetY = (e.clientY - rect.top - offsetY) / scale - item.y;
 		draggingItemId = itemId;
 		document.addEventListener('mousemove', onDragMove);
 		document.addEventListener('mouseup', onDragEnd);
@@ -240,8 +268,8 @@
 		const item = items.find((i) => i.id === draggingItemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		item.x = e.clientX - rect.left - offsetX - grabOffsetX;
-		item.y = e.clientY - rect.top - offsetY - grabOffsetY;
+		item.x = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
+		item.y = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
 	}
 
 	function onDragEnd() {
@@ -251,17 +279,17 @@
 	}
 
 	function canvasCursor() {
-		if (draggingItemId || draggingFrameId) return 'grabbing';
+		if (draggingItemId || draggingFrameId || isPanning) return 'grabbing';
 		if (resizingFrameId) return 'se-resize';
 		if (activeAction) return 'crosshair';
-		return isPanning ? 'grabbing' : 'grab';
+		return 'default';
 	}
 </script>
 
 <div
 	bind:this={boardEl}
 	class="relative h-full w-full overflow-hidden"
-	style="background-color: #F7F9FB; background-image: radial-gradient(circle, #D0D4DA 1px, transparent 1px); background-size: 32px 32px; background-position: {offsetX}px {offsetY}px;"
+	style="background-color: #F7F9FB; background-image: radial-gradient(circle, #D0D4DA 1px, transparent 1px); background-size: {32 * scale}px {32 * scale}px; background-position: {offsetX}px {offsetY}px;"
 >
 	<canvas
 		class="absolute inset-0 h-full w-full select-none"
@@ -271,13 +299,15 @@
 		onmousedown={onMouseDown}
 		onmousemove={onMouseMove}
 		onmouseup={onMouseUp}
-		onmouseleave={onMouseUp}
+		onmouseleave={onMouseLeave}
+		oncontextmenu={onContextMenu}
+		onwheel={onWheel}
 		onkeydown={onKeyDown}
 	></canvas>
 
 	<div
 		class="pointer-events-none absolute inset-0 z-5"
-		style="transform: translate({offsetX}px, {offsetY}px);"
+		style="transform: translate({offsetX}px, {offsetY}px) scale({scale}); transform-origin: 0 0;"
 	>
 		{#each frames as frame (frame.id)}
 			<BoundedContext
