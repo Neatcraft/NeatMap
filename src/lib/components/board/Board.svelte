@@ -32,6 +32,8 @@
 
 	let groups = $state<Group[]>([]);
 	let groupTargetId = $state<string | null>(null);
+	let draggingGroupId = $state<string | null>(null);
+	let frozenGroupPositions = $state<Record<string, { x: number; y: number }>>({});
 
 	let lastX = 0;
 	let lastY = 0;
@@ -42,7 +44,8 @@
 	let frameGrabOffsetX = 0;
 	let frameGrabOffsetY = 0;
 	let draggedFrameItemIds: string[] = [];
-	let draggedGroupItemIds: string[] = [];
+	let groupDragLastX = 0;
+	let groupDragLastY = 0;
 	let resizeStartW = 0;
 	let resizeStartH = 0;
 	let resizeStartX = 0;
@@ -278,7 +281,40 @@
 		document.removeEventListener('mouseup', onFrameResizeEnd);
 	}
 
-	// --- Item dragging ---
+	// --- Group dragging (via GroupBackground) ---
+	function startGroupDrag(e: MouseEvent, groupId: string) {
+		if (!boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		groupDragLastX = (e.clientX - rect.left - offsetX) / scale;
+		groupDragLastY = (e.clientY - rect.top - offsetY) / scale;
+		draggingGroupId = groupId;
+		document.addEventListener('mousemove', onGroupDragMove);
+		document.addEventListener('mouseup', onGroupDragEnd);
+	}
+
+	function onGroupDragMove(e: MouseEvent) {
+		const group = groups.find((g) => g.id === draggingGroupId);
+		if (!group || !boardEl) return;
+		const rect = boardEl.getBoundingClientRect();
+		const wx = (e.clientX - rect.left - offsetX) / scale;
+		const wy = (e.clientY - rect.top - offsetY) / scale;
+		const dx = wx - groupDragLastX;
+		const dy = wy - groupDragLastY;
+		groupDragLastX = wx;
+		groupDragLastY = wy;
+		for (const id of group.itemIds) {
+			const item = items.find((i) => i.id === id);
+			if (item) { item.x += dx; item.y += dy; }
+		}
+	}
+
+	function onGroupDragEnd() {
+		draggingGroupId = null;
+		document.removeEventListener('mousemove', onGroupDragMove);
+		document.removeEventListener('mouseup', onGroupDragEnd);
+	}
+
+	// --- Item dragging (always individual — grouped items can detach) ---
 	function startItemDrag(e: MouseEvent, itemId: string) {
 		const item = items.find((i) => i.id === itemId);
 		if (!item || !boardEl) return;
@@ -286,9 +322,17 @@
 		grabOffsetX = (e.clientX - rect.left - offsetX) / scale - item.x;
 		grabOffsetY = (e.clientY - rect.top - offsetY) / scale - item.y;
 		draggingItemId = itemId;
-		draggedGroupItemIds = item.groupId
-			? (groups.find((g) => g.id === item.groupId)?.itemIds ?? [])
-			: [];
+		if (item.groupId) {
+			const group = groups.find((g) => g.id === item.groupId);
+			if (group) {
+				const snap: Record<string, { x: number; y: number }> = {};
+				for (const id of group.itemIds) {
+					const gi = items.find((i) => i.id === id);
+					if (gi) snap[id] = { x: gi.x, y: gi.y };
+				}
+				frozenGroupPositions = snap;
+			}
+		}
 		document.addEventListener('mousemove', onDragMove);
 		document.addEventListener('mouseup', onDragEnd);
 	}
@@ -297,26 +341,47 @@
 		const item = items.find((i) => i.id === draggingItemId);
 		if (!item || !boardEl) return;
 		const rect = boardEl.getBoundingClientRect();
-		const newX = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
-		const newY = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
-
-		if (draggedGroupItemIds.length > 1) {
-			const dx = newX - item.x;
-			const dy = newY - item.y;
-			for (const id of draggedGroupItemIds) {
-				const gi = items.find((i) => i.id === id);
-				if (gi) { gi.x += dx; gi.y += dy; }
-			}
-		} else {
-			item.x = newX;
-			item.y = newY;
+		item.x = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
+		item.y = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
+		if (!item.groupId) {
 			groupTargetId = findGroupTarget(item.id)?.id ?? null;
 		}
 	}
 
 	function onDragEnd() {
-		if (groupTargetId && draggingItemId) {
-			const item = items.find((i) => i.id === draggingItemId);
+		const item = items.find((i) => i.id === draggingItemId);
+
+		if (item?.groupId) {
+			// Check if item drifted far enough from its partner to detach
+			const gid = item.groupId;
+			const group = groups.find((g) => g.id === gid);
+			if (group) {
+				const partners = group.itemIds
+					.filter((id) => id !== item.id)
+					.map((id) => items.find((i) => i.id === id))
+					.filter((i): i is EventItem => i !== undefined);
+				const stillClose = partners.some(
+					(p) => Math.hypot(item.x - p.x, item.y - p.y) < GROUP_DISTANCE
+				);
+				if (!stillClose) {
+					item.groupId = undefined;
+					const remaining = group.itemIds.filter((id) => id !== item.id);
+					// Dissolve group if only 1 card left
+					if (remaining.length <= 1) {
+						remaining.forEach((id) => {
+							const i = items.find((i) => i.id === id);
+							if (i) i.groupId = undefined;
+						});
+						groups = groups.filter((g) => g.id !== gid);
+					} else {
+						groups = groups.map((g) =>
+							g.id === gid ? { ...g, itemIds: remaining } : g
+						);
+					}
+				}
+			}
+		} else if (groupTargetId && draggingItemId) {
+			// Form a new group
 			const target = items.find((i) => i.id === groupTargetId);
 			if (item && target) {
 				const gid = crypto.randomUUID();
@@ -330,15 +395,16 @@
 				groups.push({ id: gid, itemIds: [cmd.id, evt.id] });
 			}
 		}
+
 		groupTargetId = null;
 		draggingItemId = null;
-		draggedGroupItemIds = [];
+		frozenGroupPositions = {};
 		document.removeEventListener('mousemove', onDragMove);
 		document.removeEventListener('mouseup', onDragEnd);
 	}
 
 	function canvasCursor() {
-		if (draggingItemId || draggingFrameId || isPanning) return 'grabbing';
+		if (draggingItemId || draggingFrameId || draggingGroupId || isPanning) return 'grabbing';
 		if (resizingFrameId) return 'se-resize';
 		if (activeAction) return 'crosshair';
 		return 'default';
@@ -384,7 +450,15 @@
 		{#each groups as group (group.id)}
 			{@const groupItems = group.itemIds.map((id) => items.find((i) => i.id === id)).filter((i) => i !== undefined)}
 			{#if groupItems.length === group.itemIds.length}
-				<GroupBackground items={groupItems} />
+				{@const isFrozen = groupItems.some((i) => i.id in frozenGroupPositions)}
+				{@const displayItems = isFrozen
+					? groupItems.map((i) => ({ ...i, ...(frozenGroupPositions[i.id] ?? {}) }))
+					: groupItems}
+				<GroupBackground
+					items={displayItems}
+					isDragging={draggingGroupId === group.id}
+					onDragStart={(e) => startGroupDrag(e, group.id)}
+				/>
 			{/if}
 		{/each}
 

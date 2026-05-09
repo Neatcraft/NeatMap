@@ -3,12 +3,14 @@
 
 	interface Props {
 		items: EventItem[];
+		isDragging: boolean;
+		onDragStart: (e: MouseEvent) => void;
 	}
 
-	let { items }: Props = $props();
+	let { items, isDragging, onDragStart }: Props = $props();
 
 	const HALF = 72;
-	const PAD = 16;
+	const PAD = 32;
 
 	const minX = $derived(Math.min(...items.map((i) => i.x)) - HALF - PAD);
 	const minY = $derived(Math.min(...items.map((i) => i.y)) - HALF - PAD);
@@ -17,7 +19,9 @@
 </script>
 
 <div
-	class="absolute pointer-events-none rounded-3xl"
+	class="pointer-events-auto absolute rounded-3xl"
+	class:cursor-grab={!isDragging}
+	class:cursor-grabbing={isDragging}
 	style="
 		left: {minX}px;
 		top: {minY}px;
@@ -27,4 +31,5 @@
 		border: 1.5px solid rgba(203, 213, 225, 0.9);
 		box-shadow: 0 4px 24px rgba(0,39,64,0.09), inset 0 1px 0 rgba(255,255,255,0.7);
 	"
+	onmousedown={onDragStart}
 ></div>
