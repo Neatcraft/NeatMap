@@ -58,7 +58,7 @@
 	const GROUPABLE: Partial<Record<ItemType, ItemType>> = { event: 'command', command: 'event' };
 
 	function canJoinGroup(item: EventItem, groupId: string): boolean {
-		if (item.type === 'actor') return true;
+		if (item.type === 'actor' || item.type === 'data') return true;
 		const group = groups.find((g) => g.id === groupId);
 		if (!group) return false;
 		return !group.itemIds.some((id) => items.find((i) => i.id === id)?.type === item.type);
@@ -68,7 +68,7 @@
 		const item = items.find((i) => i.id === itemId);
 		if (!item || item.groupId) return null;
 		const compatibleTypes: ItemType[] =
-			item.type === 'actor' || item.type === 'system'
+			item.type === 'actor' || item.type === 'system' || item.type === 'data'
 				? ['event', 'command']
 				: GROUPABLE[item.type] ? [GROUPABLE[item.type]!] : [];
 		if (!compatibleTypes.length) return null;
@@ -95,6 +95,7 @@
 		const cmd = gItems.find((i) => i.type === 'command');
 		const sys = gItems.find((i) => i.type === 'system');
 		const actors = gItems.filter((i) => i.type === 'actor');
+		const dataItems = gItems.filter((i) => i.type === 'data');
 		const anchor = evt ?? cmd;
 		if (!anchor) return;
 		const ay = anchor.y;
@@ -103,6 +104,7 @@
 		if (sys) { sys.x = anchor.x; sys.y = ay - SPACING; }
 		if (cmd) { cmd.x = curX; cmd.y = ay; curX -= SPACING; }
 		actors.forEach((actor, idx) => { actor.x = curX; actor.y = ay + idx * SPACING; });
+		dataItems.forEach((data, idx) => { data.x = anchor.x; data.y = ay + SPACING * (idx + 1); });
 	}
 
 	function deleteItem(id: string) {
