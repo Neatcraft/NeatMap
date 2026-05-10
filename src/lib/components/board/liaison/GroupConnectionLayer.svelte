@@ -48,7 +48,9 @@
 						`M ${to.x - S * Math.cos(angle - Math.PI / 6)} ${to.y - S * Math.sin(angle - Math.PI / 6)}`,
 						`L ${to.x} ${to.y}`,
 						`L ${to.x - S * Math.cos(angle + Math.PI / 6)} ${to.y - S * Math.sin(angle + Math.PI / 6)}`
-					].join(' ')
+					].join(' '),
+					midX: 0.125 * from.x + 0.375 * cx1 + 0.375 * cx2 + 0.125 * to.x,
+					midY: 0.125 * from.y + 0.375 * cy1 + 0.375 * cy2 + 0.125 * to.y
 				};
 			})
 			.filter((d): d is NonNullable<typeof d> => d !== null)
@@ -71,8 +73,39 @@
 	style="z-index:20;"
 >
 	{#each lines as l (l.id)}
-		<path d={l.path} stroke="#475569" stroke-width="1.5" fill="none" />
-		<path d={l.arrow} stroke="#475569" stroke-width="1.5" fill="#475569" stroke-linejoin="round" />
+		{@const selected = connectionStore.selectedId === l.id}
+		{@const color = selected ? '#3b82f6' : '#475569'}
+		<path d={l.path} stroke={color} stroke-width="1.5" fill="none" />
+		<path d={l.arrow} stroke={color} stroke-width="1.5" fill={color} stroke-linejoin="round" />
+		<path
+			d={l.path}
+			stroke="transparent"
+			stroke-width="12"
+			fill="none"
+			style="pointer-events:stroke;cursor:pointer;"
+			onmousedown={(e) => { e.stopPropagation(); connectionStore.select(l.id); }}
+		/>
+		{#if selected}
+			<circle
+				cx={l.midX}
+				cy={l.midY}
+				r="10"
+				fill="white"
+				stroke="#3b82f6"
+				stroke-width="1.5"
+				style="pointer-events:auto;cursor:pointer;"
+				onmousedown={(e) => { e.stopPropagation(); connectionStore.deleteSelected(); }}
+			/>
+			<text
+				x={l.midX}
+				y={l.midY}
+				text-anchor="middle"
+				dominant-baseline="central"
+				font-size="14"
+				fill="#3b82f6"
+				style="pointer-events:none;"
+			>×</text>
+		{/if}
 	{/each}
 	{#if connectionStore.connectingFrom}
 		<line

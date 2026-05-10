@@ -55,6 +55,7 @@
 			if ((e.target as HTMLElement).isContentEditable) return;
 			if (boardState.selectedItemId) itemActions.delete(boardState.selectedItemId);
 			else if (boardState.selectedFrameId) frameActions.delete(boardState.selectedFrameId);
+			else if (connectionStore.selectedId) connectionStore.deleteSelected();
 		}
 		document.addEventListener('keydown', handleDelete);
 		return () => document.removeEventListener('keydown', handleDelete);
@@ -67,6 +68,7 @@
 		} else if (e.button === 0) {
 			boardState.selectedItemId = null;
 			boardState.selectedFrameId = null;
+			connectionStore.deselect();
 			navActions.startClick(e);
 		}
 	}

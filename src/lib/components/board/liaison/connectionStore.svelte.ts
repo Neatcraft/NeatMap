@@ -30,6 +30,22 @@ class ConnectionStore {
 		this.cancel();
 	}
 
+	selectedId = $state<string | null>(null);
+
+	select(id: string) {
+		this.selectedId = id;
+	}
+
+	deselect() {
+		this.selectedId = null;
+	}
+
+	deleteSelected() {
+		if (!this.selectedId) return;
+		this.connections = this.connections.filter((c) => c.id !== this.selectedId);
+		this.selectedId = null;
+	}
+
 	cancel() {
 		this.connectingFrom = null;
 	}
