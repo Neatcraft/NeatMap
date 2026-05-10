@@ -18,6 +18,7 @@ class GroupActions {
 	private dragLastY = 0;
 
 	canJoin(item: EventItem, groupId: string): boolean {
+		if (item.type === 'policy' || item.type === 'hot-spot') return false;
 		if (item.type === 'actor' || item.type === 'data') return true;
 		const group = boardState.groups.find((g) => g.id === groupId);
 		if (!group) return false;

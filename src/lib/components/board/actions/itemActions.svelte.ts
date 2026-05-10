@@ -149,6 +149,7 @@ class ItemActions {
 			connectionStore.removeGroup(gid);
 			boardState.groups = boardState.groups.filter((g) => g.id !== gid);
 		}
+		connectionStore.removeGroup(id);
 		boardState.items = boardState.items.filter((i) => i.id !== id);
 		boardState.selectedItemId = null;
 	}

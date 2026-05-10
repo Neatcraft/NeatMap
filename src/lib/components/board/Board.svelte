@@ -35,16 +35,19 @@
 		'add-hot-spot': 'hot-spot'
 	};
 
-	const resolvedGroups = $derived(
-		boardState.groups
+	const connectables = $derived([
+		...boardState.groups
 			.map((g) => ({
 				id: g.id,
 				items: g.itemIds
 					.map((id) => boardState.items.find((i) => i.id === id))
 					.filter((i): i is EventItem => i !== undefined)
 			}))
-			.filter((g) => g.items.length > 0)
-	);
+			.filter((g) => g.items.length > 0),
+		...boardState.items
+			.filter((i) => i.type === 'policy')
+			.map((i) => ({ id: i.id, items: [i] }))
+	]);
 
 	onMount(() => {
 		function handleDelete(e: KeyboardEvent) {
@@ -181,7 +184,7 @@
 			/>
 		{/each}
 
-		<GroupConnectionLayer groups={resolvedGroups} />
+		<GroupConnectionLayer groups={connectables} />
 	</div>
 
 	<BoardToolbar
