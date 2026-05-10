@@ -1,8 +1,18 @@
 <script lang="ts">
-	import { tick, onMount } from 'svelte';
-	import ActionButton from './ActionButton.svelte';
-	import { EventCard, CommandCard, ActorCard, SystemCard, DataCard, PolicyCard, HotSpotCard, BoundedContext, GroupBackground } from './event-storming/index.js';
-	import type { BoardAction, EventItem, FrameItem, Group, ItemType } from './types.js';
+	import { onMount } from 'svelte';
+	import {
+		EventCard, CommandCard, ActorCard, SystemCard, DataCard, PolicyCard, HotSpotCard,
+		BoundedContext, GroupBackground
+	} from './event-storming/index.js';
+	import type { BoardAction, EventItem, ItemType } from './types.js';
+	import { boardState } from './boardState.svelte.js';
+	import { navActions } from './actions/navActions.svelte.js';
+	import { frameActions } from './actions/frameActions.svelte.js';
+	import { groupActions } from './actions/groupActions.svelte.js';
+	import { itemActions } from './actions/itemActions.svelte.js';
+	import { connectionStore } from './liaison/connectionStore.svelte.js';
+	import GroupConnectionLayer from './liaison/GroupConnectionLayer.svelte';
+	import BoardToolbar from './BoardToolbar.svelte';
 
 	const CARD_MAP: Record<ItemType, typeof EventCard> = {
 		event: EventCard,
@@ -14,473 +24,91 @@
 		'hot-spot': HotSpotCard
 	};
 
-	let offsetX = $state(0);
-	let offsetY = $state(0);
-	let scale = $state(1);
-	let isPanning = $state(false);
-	let isLeftDown = $state(false);
-	let activeAction = $state<BoardAction>(null);
-	let items = $state<EventItem[]>([]);
-	let draggingItemId = $state<string | null>(null);
-	let selectedItemId = $state<string | null>(null);
-	let boardEl = $state<HTMLElement | null>(null);
-
-	let frames = $state<FrameItem[]>([]);
-	let draggingFrameId = $state<string | null>(null);
-	let selectedFrameId = $state<string | null>(null);
-	let resizingFrameId = $state<string | null>(null);
-
-	let groups = $state<Group[]>([]);
-	let groupTargetId = $state<string | null>(null);
-	let draggingGroupId = $state<string | null>(null);
-	let groupJoinTargetId = $state<string | null>(null);
-	let frozenGroupPositions = $state<Record<string, { x: number; y: number }>>({});
-
-	let lastX = 0;
-	let lastY = 0;
-	let startX = 0;
-	let startY = 0;
-	let grabOffsetX = 0;
-	let grabOffsetY = 0;
-	let frameGrabOffsetX = 0;
-	let frameGrabOffsetY = 0;
-	let draggedFrameItemIds: string[] = [];
-	let groupDragLastX = 0;
-	let groupDragLastY = 0;
-	let resizeStartW = 0;
-	let resizeStartH = 0;
-	let resizeStartX = 0;
-	let resizeStartY = 0;
-
-	const KEYBOARD_STEP = 20;
 	const CLICK_THRESHOLD = 5;
-	const GROUP_DISTANCE = 100;
-	const GROUPABLE: Partial<Record<ItemType, ItemType>> = { event: 'command', command: 'event' };
+	const TYPE_BY_ACTION: Partial<Record<NonNullable<BoardAction>, ItemType>> = {
+		'add-event-item': 'event',
+		'manage-commands': 'command',
+		'add-actor': 'actor',
+		'add-system': 'system',
+		'add-data': 'data',
+		'add-policy': 'policy',
+		'add-hot-spot': 'hot-spot'
+	};
 
-	function canJoinGroup(item: EventItem, groupId: string): boolean {
-		if (item.type === 'actor' || item.type === 'data') return true;
-		const group = groups.find((g) => g.id === groupId);
-		if (!group) return false;
-		return !group.itemIds.some((id) => items.find((i) => i.id === id)?.type === item.type);
-	}
-
-	function findGroupTarget(itemId: string): EventItem | null {
-		const item = items.find((i) => i.id === itemId);
-		if (!item || item.groupId) return null;
-		const compatibleTypes: ItemType[] =
-			item.type === 'actor' || item.type === 'system' || item.type === 'data'
-				? ['event', 'command']
-				: GROUPABLE[item.type] ? [GROUPABLE[item.type]!] : [];
-		if (!compatibleTypes.length) return null;
-		return items.find(
-			(other) =>
-				other.id !== itemId &&
-				!other.groupId &&
-				compatibleTypes.includes(other.type) &&
-				Math.hypot(item.x - other.x, item.y - other.y) < GROUP_DISTANCE
-		) ?? null;
-	}
-
-	const SPACING = 160;
-	const GROUP_HALF = 72;
-	const GROUP_PAD = 32;
-
-	function layoutGroup(groupId: string) {
-		const group = groups.find((g) => g.id === groupId);
-		if (!group) return;
-		const gItems = group.itemIds
-			.map((id) => items.find((i) => i.id === id))
-			.filter((i): i is EventItem => i !== undefined);
-		const evt = gItems.find((i) => i.type === 'event');
-		const cmd = gItems.find((i) => i.type === 'command');
-		const sys = gItems.find((i) => i.type === 'system');
-		const actors = gItems.filter((i) => i.type === 'actor');
-		const dataItems = gItems.filter((i) => i.type === 'data');
-		const anchor = evt ?? cmd;
-		if (!anchor) return;
-		const ay = anchor.y;
-		let curX = anchor.x;
-		if (evt) { evt.x = curX; evt.y = ay; curX -= SPACING; }
-		if (sys) { sys.x = anchor.x; sys.y = ay - SPACING; }
-		if (cmd) { cmd.x = curX; cmd.y = ay; curX -= SPACING; }
-		actors.forEach((actor, idx) => { actor.x = curX; actor.y = ay + idx * SPACING; });
-		dataItems.forEach((data, idx) => { data.x = anchor.x; data.y = ay + SPACING * (idx + 1); });
-	}
-
-	function deleteItem(id: string) {
-		const item = items.find((i) => i.id === id);
-		if (item?.groupId) {
-			const gid = item.groupId;
-			items.forEach((i) => { if (i.groupId === gid) i.groupId = undefined; });
-			groups = groups.filter((g) => g.id !== gid);
-		}
-		items = items.filter((i) => i.id !== id);
-		selectedItemId = null;
-	}
-
-	function deleteFrame(id: string) {
-		frames = frames.filter((f) => f.id !== id);
-		selectedFrameId = null;
-	}
+	const resolvedGroups = $derived(
+		boardState.groups
+			.map((g) => ({
+				id: g.id,
+				items: g.itemIds
+					.map((id) => boardState.items.find((i) => i.id === id))
+					.filter((i): i is EventItem => i !== undefined)
+			}))
+			.filter((g) => g.items.length > 0)
+	);
 
 	onMount(() => {
 		function handleDelete(e: KeyboardEvent) {
 			if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-			const target = e.target as HTMLElement;
-			if (target.isContentEditable) return;
-			if (selectedItemId) deleteItem(selectedItemId);
-			else if (selectedFrameId) deleteFrame(selectedFrameId);
+			if ((e.target as HTMLElement).isContentEditable) return;
+			if (boardState.selectedItemId) itemActions.delete(boardState.selectedItemId);
+			else if (boardState.selectedFrameId) frameActions.delete(boardState.selectedFrameId);
 		}
 		document.addEventListener('keydown', handleDelete);
 		return () => document.removeEventListener('keydown', handleDelete);
 	});
 
-	function selectAction(action: BoardAction) {
-		activeAction = activeAction === action ? null : action;
-	}
-
-	// --- Board panning (right-click drag) + left-click creation ---
 	function onMouseDown(e: MouseEvent) {
+		if (connectionStore.connectingFrom) { connectionStore.cancel(); return; }
 		if (e.button === 2) {
-			isPanning = true;
-			lastX = e.clientX;
-			lastY = e.clientY;
-			startX = e.clientX;
-			startY = e.clientY;
+			navActions.startPan(e);
 		} else if (e.button === 0) {
-			selectedItemId = null;
-			selectedFrameId = null;
-			isLeftDown = true;
-			startX = e.clientX;
-			startY = e.clientY;
+			boardState.selectedItemId = null;
+			boardState.selectedFrameId = null;
+			navActions.startClick(e);
 		}
 	}
 
 	function onMouseMove(e: MouseEvent) {
-		if (!isPanning) return;
-		offsetX += e.clientX - lastX;
-		offsetY += e.clientY - lastY;
-		lastX = e.clientX;
-		lastY = e.clientY;
+		if (connectionStore.connectingFrom && boardState.boardEl) {
+			const rect = boardState.boardEl.getBoundingClientRect();
+			connectionStore.updateMouse(
+				(e.clientX - rect.left - boardState.offsetX) / boardState.scale,
+				(e.clientY - rect.top - boardState.offsetY) / boardState.scale
+			);
+		}
+		navActions.pan(e);
 	}
 
 	async function onMouseUp(e: MouseEvent) {
-		if (e.button === 2) {
-			isPanning = false;
-			return;
-		}
-		if (e.button !== 0 || !isLeftDown) return;
-		isLeftDown = false;
+		if (e.button === 2) { navActions.endPan(); return; }
+		if (e.button !== 0 || !navActions.isLeftDown) return;
+		navActions.endClick();
 
-		const dx = e.clientX - startX;
-		const dy = e.clientY - startY;
-		const isClick = Math.sqrt(dx * dx + dy * dy) < CLICK_THRESHOLD;
+		const dx = e.clientX - navActions.startX;
+		const dy = e.clientY - navActions.startY;
+		if (Math.sqrt(dx * dx + dy * dy) >= CLICK_THRESHOLD) return;
 
-		if (isClick && activeAction === 'add-frame') {
-			const rect = boardEl!.getBoundingClientRect();
-			const id = crypto.randomUUID();
-			const wx = (e.clientX - rect.left - offsetX) / scale;
-			const wy = (e.clientY - rect.top - offsetY) / scale;
-			frames.push({ id, x: wx - 175, y: wy - 125, width: 350, height: 250, label: '' });
-			selectedFrameId = id;
-		}
-
-		const typeByAction: Partial<Record<BoardAction, ItemType>> = {
-			'add-event-item': 'event',
-			'manage-commands': 'command',
-			'add-actor': 'actor',
-			'add-system': 'system',
-			'add-data': 'data',
-			'add-policy': 'policy',
-			'add-hot-spot': 'hot-spot'
-		};
-		const itemType = activeAction ? typeByAction[activeAction] : null;
-
-		if (isClick && itemType) {
-			const rect = boardEl!.getBoundingClientRect();
-			const id = crypto.randomUUID();
-			items.push({
-				id,
-				x: (e.clientX - rect.left - offsetX) / scale,
-				y: (e.clientY - rect.top - offsetY) / scale,
-				label: '',
-				exists: true,
-				type: itemType
-			});
-			await tick();
-			document.getElementById(`item-${id}`)?.focus();
-		}
-	}
-
-	function onMouseLeave() {
-		isPanning = false;
-		isLeftDown = false;
-	}
-
-	function onContextMenu(e: MouseEvent) {
-		e.preventDefault();
-	}
-
-	function onWheel(e: WheelEvent) {
-		e.preventDefault();
-		const rect = boardEl!.getBoundingClientRect();
-		const mouseX = e.clientX - rect.left;
-		const mouseY = e.clientY - rect.top;
-		const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-		const newScale = Math.max(0.1, Math.min(5, scale * factor));
-		offsetX = mouseX - (mouseX - offsetX) * (newScale / scale);
-		offsetY = mouseY - (mouseY - offsetY) * (newScale / scale);
-		scale = newScale;
-	}
-
-	function onKeyDown(e: KeyboardEvent) {
-		const moves: Record<string, [number, number]> = {
-			ArrowLeft: [KEYBOARD_STEP, 0],
-			ArrowRight: [-KEYBOARD_STEP, 0],
-			ArrowUp: [0, KEYBOARD_STEP],
-			ArrowDown: [0, -KEYBOARD_STEP]
-		};
-		const move = moves[e.key];
-		if (!move) return;
-		e.preventDefault();
-		offsetX += move[0];
-		offsetY += move[1];
-	}
-
-	// --- Frame dragging ---
-	function itemInsideFrame(item: EventItem, frame: FrameItem): boolean {
-		return (
-			item.x >= frame.x &&
-			item.x <= frame.x + frame.width &&
-			item.y >= frame.y &&
-			item.y <= frame.y + frame.height
-		);
-	}
-
-	function startFrameDrag(e: MouseEvent, frameId: string) {
-		const frame = frames.find((f) => f.id === frameId);
-		if (!frame || !boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		frameGrabOffsetX = (e.clientX - rect.left - offsetX) / scale - frame.x;
-		frameGrabOffsetY = (e.clientY - rect.top - offsetY) / scale - frame.y;
-		draggedFrameItemIds = items.filter((i) => itemInsideFrame(i, frame)).map((i) => i.id);
-		draggingFrameId = frameId;
-		document.addEventListener('mousemove', onFrameDragMove);
-		document.addEventListener('mouseup', onFrameDragEnd);
-	}
-
-	function onFrameDragMove(e: MouseEvent) {
-		const frame = frames.find((f) => f.id === draggingFrameId);
-		if (!frame || !boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		const newX = (e.clientX - rect.left - offsetX) / scale - frameGrabOffsetX;
-		const newY = (e.clientY - rect.top - offsetY) / scale - frameGrabOffsetY;
-		const dx = newX - frame.x;
-		const dy = newY - frame.y;
-		frame.x = newX;
-		frame.y = newY;
-		for (const id of draggedFrameItemIds) {
-			const item = items.find((i) => i.id === id);
-			if (item) { item.x += dx; item.y += dy; }
-		}
-	}
-
-	function onFrameDragEnd() {
-		draggingFrameId = null;
-		draggedFrameItemIds = [];
-		document.removeEventListener('mousemove', onFrameDragMove);
-		document.removeEventListener('mouseup', onFrameDragEnd);
-	}
-
-	// --- Frame resizing ---
-	function startFrameResize(e: MouseEvent, frameId: string) {
-		const frame = frames.find((f) => f.id === frameId);
-		if (!frame) return;
-		resizeStartW = frame.width;
-		resizeStartH = frame.height;
-		resizeStartX = e.clientX;
-		resizeStartY = e.clientY;
-		resizingFrameId = frameId;
-		document.addEventListener('mousemove', onFrameResizeMove);
-		document.addEventListener('mouseup', onFrameResizeEnd);
-	}
-
-	function onFrameResizeMove(e: MouseEvent) {
-		const frame = frames.find((f) => f.id === resizingFrameId);
-		if (!frame) return;
-		frame.width = Math.max(150, resizeStartW + (e.clientX - resizeStartX) / scale);
-		frame.height = Math.max(100, resizeStartH + (e.clientY - resizeStartY) / scale);
-	}
-
-	function onFrameResizeEnd() {
-		resizingFrameId = null;
-		document.removeEventListener('mousemove', onFrameResizeMove);
-		document.removeEventListener('mouseup', onFrameResizeEnd);
-	}
-
-	// --- Group dragging (via GroupBackground) ---
-	function startGroupDrag(e: MouseEvent, groupId: string) {
-		if (!boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		groupDragLastX = (e.clientX - rect.left - offsetX) / scale;
-		groupDragLastY = (e.clientY - rect.top - offsetY) / scale;
-		draggingGroupId = groupId;
-		document.addEventListener('mousemove', onGroupDragMove);
-		document.addEventListener('mouseup', onGroupDragEnd);
-	}
-
-	function onGroupDragMove(e: MouseEvent) {
-		const group = groups.find((g) => g.id === draggingGroupId);
-		if (!group || !boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		const wx = (e.clientX - rect.left - offsetX) / scale;
-		const wy = (e.clientY - rect.top - offsetY) / scale;
-		const dx = wx - groupDragLastX;
-		const dy = wy - groupDragLastY;
-		groupDragLastX = wx;
-		groupDragLastY = wy;
-		for (const id of group.itemIds) {
-			const item = items.find((i) => i.id === id);
-			if (item) { item.x += dx; item.y += dy; }
-		}
-	}
-
-	function onGroupDragEnd() {
-		draggingGroupId = null;
-		document.removeEventListener('mousemove', onGroupDragMove);
-		document.removeEventListener('mouseup', onGroupDragEnd);
-	}
-
-	// --- Item dragging (always individual — grouped items can detach) ---
-	function startItemDrag(e: MouseEvent, itemId: string) {
-		const item = items.find((i) => i.id === itemId);
-		if (!item || !boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		grabOffsetX = (e.clientX - rect.left - offsetX) / scale - item.x;
-		grabOffsetY = (e.clientY - rect.top - offsetY) / scale - item.y;
-		draggingItemId = itemId;
-		if (item.groupId) {
-			const group = groups.find((g) => g.id === item.groupId);
-			if (group) {
-				const snap: Record<string, { x: number; y: number }> = {};
-				for (const id of group.itemIds) {
-					const gi = items.find((i) => i.id === id);
-					if (gi) snap[id] = { x: gi.x, y: gi.y };
-				}
-				frozenGroupPositions = snap;
-			}
-		}
-		document.addEventListener('mousemove', onDragMove);
-		document.addEventListener('mouseup', onDragEnd);
-	}
-
-	function groupBoundsContain(partnerIds: string[], px: number, py: number): boolean {
-		const positions = partnerIds
-			.map((id) => frozenGroupPositions[id] ?? items.find((i) => i.id === id))
-			.filter((p): p is { x: number; y: number } => p !== undefined);
-		if (!positions.length) return false;
-		const minX = Math.min(...positions.map((p) => p.x)) - GROUP_HALF - GROUP_PAD;
-		const maxX = Math.max(...positions.map((p) => p.x)) + GROUP_HALF + GROUP_PAD;
-		const minY = Math.min(...positions.map((p) => p.y)) - GROUP_HALF - GROUP_PAD;
-		const maxY = Math.max(...positions.map((p) => p.y)) + GROUP_HALF + GROUP_PAD;
-		return px >= minX && px <= maxX && py >= minY && py <= maxY;
-	}
-
-	function onDragMove(e: MouseEvent) {
-		const item = items.find((i) => i.id === draggingItemId);
-		if (!item || !boardEl) return;
-		const rect = boardEl.getBoundingClientRect();
-		item.x = (e.clientX - rect.left - offsetX) / scale - grabOffsetX;
-		item.y = (e.clientY - rect.top - offsetY) / scale - grabOffsetY;
-		if (item.groupId) {
-			const group = groups.find((g) => g.id === item.groupId);
-			const partnerIds = group?.itemIds.filter((id) => id !== item.id) ?? [];
-			groupJoinTargetId = groupBoundsContain(partnerIds, item.x, item.y) ? item.groupId : null;
-		} else {
-			groupJoinTargetId = null;
-			for (const group of groups) {
-				const gItems = group.itemIds
-					.map((id) => items.find((i) => i.id === id))
-					.filter((i): i is EventItem => i !== undefined);
-				if (!gItems.length) continue;
-				const minX = Math.min(...gItems.map((i) => i.x)) - GROUP_HALF - GROUP_PAD;
-				const maxX = Math.max(...gItems.map((i) => i.x)) + GROUP_HALF + GROUP_PAD;
-				const minY = Math.min(...gItems.map((i) => i.y)) - GROUP_HALF - GROUP_PAD;
-				const maxY = Math.max(...gItems.map((i) => i.y)) + GROUP_HALF + GROUP_PAD;
-				if (item.x >= minX && item.x <= maxX && item.y >= minY && item.y <= maxY && canJoinGroup(item, group.id)) {
-					groupJoinTargetId = group.id;
-					break;
-				}
-			}
-			groupTargetId = groupJoinTargetId ? null : (findGroupTarget(item.id)?.id ?? null);
-		}
-	}
-
-	function onDragEnd() {
-		const item = items.find((i) => i.id === draggingItemId);
-
-		if (item?.groupId) {
-			const gid = item.groupId;
-			// groupJoinTargetId === gid means item is still inside group bounds → keep it
-			if (groupJoinTargetId !== gid) {
-				const group = groups.find((g) => g.id === gid);
-				if (group) {
-					item.groupId = undefined;
-					const remaining = group.itemIds.filter((id) => id !== item.id);
-					if (remaining.length <= 1) {
-						remaining.forEach((id) => {
-							const i = items.find((i) => i.id === id);
-							if (i) i.groupId = undefined;
-						});
-						groups = groups.filter((g) => g.id !== gid);
-					} else {
-						groups = groups.map((g) =>
-							g.id === gid ? { ...g, itemIds: remaining } : g
-						);
-						layoutGroup(gid);
-					}
-				}
-			}
-		} else if (groupJoinTargetId && item && canJoinGroup(item, groupJoinTargetId)) {
-			// Join an existing group
-			const group = groups.find((g) => g.id === groupJoinTargetId);
-			if (group && !group.itemIds.includes(item.id)) {
-				item.groupId = groupJoinTargetId;
-				group.itemIds.push(item.id);
-				layoutGroup(groupJoinTargetId);
-			}
-		} else if (groupTargetId && draggingItemId) {
-			// Form a new 2-item group
-			const target = items.find((i) => i.id === groupTargetId);
-			if (item && target) {
-				const gid = crypto.randomUUID();
-				item.groupId = gid;
-				target.groupId = gid;
-				groups.push({ id: gid, itemIds: [item.id, target.id] });
-				layoutGroup(gid);
-			}
-		}
-
-		groupTargetId = null;
-		groupJoinTargetId = null;
-		draggingItemId = null;
-		frozenGroupPositions = {};
-		document.removeEventListener('mousemove', onDragMove);
-		document.removeEventListener('mouseup', onDragEnd);
+		if (boardState.activeAction === 'add-frame') { frameActions.create(e); return; }
+		const itemType = boardState.activeAction ? TYPE_BY_ACTION[boardState.activeAction] : null;
+		if (itemType) await itemActions.create(e, itemType);
 	}
 
 	function canvasCursor() {
-		if (draggingItemId || draggingFrameId || draggingGroupId || isPanning) return 'grabbing';
-		if (resizingFrameId) return 'se-resize';
-		if (activeAction) return 'crosshair';
+		if (connectionStore.connectingFrom) return 'crosshair';
+		if (
+			itemActions.draggingItemId || frameActions.draggingFrameId ||
+			groupActions.draggingGroupId || navActions.isPanning
+		) return 'grabbing';
+		if (frameActions.resizingFrameId) return 'se-resize';
+		if (boardState.activeAction) return 'crosshair';
 		return 'default';
 	}
 </script>
 
 <div
-	bind:this={boardEl}
+	bind:this={boardState.boardEl}
 	class="relative h-full w-full overflow-hidden"
-	style="background-color: #F7F9FB; background-image: radial-gradient(circle, #D0D4DA 1px, transparent 1px); background-size: {32 * scale}px {32 * scale}px; background-position: {offsetX}px {offsetY}px;"
+	style="background-color: #F7F9FB; background-image: radial-gradient(circle, #D0D4DA 1px, transparent 1px); background-size: {32 * boardState.scale}px {32 * boardState.scale}px; background-position: {boardState.offsetX}px {boardState.offsetY}px;"
 >
 	<canvas
 		class="absolute inset-0 h-full w-full select-none"
@@ -490,47 +118,49 @@
 		onmousedown={onMouseDown}
 		onmousemove={onMouseMove}
 		onmouseup={onMouseUp}
-		onmouseleave={onMouseLeave}
-		oncontextmenu={onContextMenu}
-		onwheel={onWheel}
-		onkeydown={onKeyDown}
+		onmouseleave={() => navActions.reset()}
+		oncontextmenu={(e) => e.preventDefault()}
+		onwheel={(e) => navActions.zoom(e)}
+		onkeydown={(e) => navActions.keyboard(e)}
 	></canvas>
 
 	<div
 		class="pointer-events-none absolute inset-0 z-5"
-		style="transform: translate({offsetX}px, {offsetY}px) scale({scale}); transform-origin: 0 0;"
+		style="transform: translate({boardState.offsetX}px, {boardState.offsetY}px) scale({boardState.scale}); transform-origin: 0 0;"
 	>
-		{#each frames as frame (frame.id)}
+		{#each boardState.frames as frame (frame.id)}
 			<BoundedContext
 				{frame}
-				isSelected={selectedFrameId === frame.id}
-				isDragging={draggingFrameId === frame.id}
-				interactive={activeAction === null}
-				onDragStart={(e) => startFrameDrag(e, frame.id)}
-				onResizeStart={(e) => startFrameResize(e, frame.id)}
-				onSelect={() => (selectedFrameId = frame.id)}
-				onDelete={() => deleteFrame(frame.id)}
+				isSelected={boardState.selectedFrameId === frame.id}
+				isDragging={frameActions.draggingFrameId === frame.id}
+				interactive={boardState.activeAction === null}
+				onDragStart={(e) => frameActions.startDrag(e, frame.id)}
+				onResizeStart={(e) => frameActions.startResize(e, frame.id)}
+				onSelect={() => (boardState.selectedFrameId = frame.id)}
+				onDelete={() => frameActions.delete(frame.id)}
 			/>
 		{/each}
 
-		{#each groups as group (group.id)}
-			{@const groupItems = group.itemIds.map((id) => items.find((i) => i.id === id)).filter((i) => i !== undefined)}
+		{#each boardState.groups as group (group.id)}
+			{@const groupItems = group.itemIds
+				.map((id) => boardState.items.find((i) => i.id === id))
+				.filter((i) => i !== undefined)}
 			{#if groupItems.length === group.itemIds.length}
-				{@const isFrozen = groupItems.some((i) => i.id in frozenGroupPositions)}
+				{@const isFrozen = groupItems.some((i) => i.id in groupActions.frozenPositions)}
 				{@const displayItems = isFrozen
-					? groupItems.map((i) => ({ ...i, ...(frozenGroupPositions[i.id] ?? {}) }))
+					? groupItems.map((i) => ({ ...i, ...(groupActions.frozenPositions[i.id] ?? {}) }))
 					: groupItems}
 				<GroupBackground
 					items={displayItems}
-					isDragging={draggingGroupId === group.id}
-					isJoinTarget={groupJoinTargetId === group.id}
-					onDragStart={(e) => startGroupDrag(e, group.id)}
+					isDragging={groupActions.draggingGroupId === group.id}
+					isJoinTarget={groupActions.joinTargetId === group.id}
+					onDragStart={(e) => groupActions.startDrag(e, group.id)}
 				/>
 			{/if}
 		{/each}
 
-		{#if groupTargetId}
-			{@const target = items.find((i) => i.id === groupTargetId)}
+		{#if groupActions.targetId}
+			{@const target = boardState.items.find((i) => i.id === groupActions.targetId)}
 			{#if target}
 				<div
 					class="absolute pointer-events-none z-30"
@@ -539,146 +169,25 @@
 			{/if}
 		{/if}
 
-		{#each items as item (item.id)}
+		{#each boardState.items as item (item.id)}
 			{@const CardComponent = CARD_MAP[item.type]}
 			<CardComponent
 				{item}
-				isDragging={draggingItemId === item.id}
-				isSelected={selectedItemId === item.id}
-				onDragStart={(e) => startItemDrag(e, item.id)}
-				onSelect={() => (selectedItemId = item.id)}
-				onDelete={() => deleteItem(item.id)}
+				isDragging={itemActions.draggingItemId === item.id}
+				isSelected={boardState.selectedItemId === item.id}
+				onDragStart={(e) => itemActions.startDrag(e, item.id)}
+				onSelect={() => (boardState.selectedItemId = item.id)}
+				onDelete={() => itemActions.delete(item.id)}
 			/>
 		{/each}
+
+		<GroupConnectionLayer groups={resolvedGroups} />
 	</div>
 
-	<aside
-		class="absolute right-4 top-1/2 z-10 -translate-y-1/2 flex flex-col gap-2 rounded-2xl bg-white px-3 py-4"
-		style="box-shadow: 0 20px 25px -5px rgba(0,39,64,0.07), 0 8px 10px -6px rgba(0,39,64,0.05);"
-		aria-label="Action menu"
-	>
-		<ActionButton
-			label="Add bounded context"
-			tooltip="Bounded Context"
-			color="#F1F5F9"
-			iconColor="#64748B"
-			isActive={activeAction === 'add-frame'}
-			onclick={() => selectAction('add-frame')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M1.5 7.125c0-1.036.84-1.875 1.875-1.875h6c1.036 0 1.875.84 1.875 1.875v3.75c0 1.035-.84 1.875-1.875 1.875h-6A1.875 1.875 0 0 1 1.5 10.875v-3.75Zm12 1.5c0-1.036.84-1.875 1.875-1.875h5.25c1.035 0 1.875.84 1.875 1.875v8.25c0 1.035-.84 1.875-1.875 1.875h-5.25a1.875 1.875 0 0 1-1.875-1.875v-8.25ZM3 16.125c0-1.036.84-1.875 1.875-1.875h5.25c1.035 0 1.875.84 1.875 1.875v2.25c0 1.035-.84 1.875-1.875 1.875h-5.25A1.875 1.875 0 0 1 3 18.375v-2.25Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add event item"
-			tooltip="Event"
-			color="#FFDCC6"
-			iconColor="#ED7D1A"
-			isActive={activeAction === 'add-event-item'}
-			onclick={() => selectAction('add-event-item')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Manage commands"
-			tooltip="Command"
-			color="#DBEAFE"
-			iconColor="#2663EB"
-			isActive={activeAction === 'manage-commands'}
-			onclick={() => selectAction('manage-commands')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 0 0-.986.57c-.166.115-.334.126-.45.083L6.3 5.508a1.875 1.875 0 0 0-2.282.819l-.922 1.597a1.875 1.875 0 0 0 .432 2.385l.84.692c.095.078.17.229.154.43a7.598 7.598 0 0 0 0 1.139c.015.2-.059.352-.153.43l-.841.692a1.875 1.875 0 0 0-.432 2.385l.922 1.597a1.875 1.875 0 0 0 2.282.818l1.019-.382c.115-.043.283-.031.45.082.312.214.641.405.985.57.182.088.277.228.297.35l.178 1.071c.151.904.933 1.567 1.85 1.567h1.844c.916 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.114-.26.297-.349.344-.165.673-.356.985-.57.167-.114.335-.125.45-.082l1.02.382a1.875 1.875 0 0 0 2.28-.819l.923-1.597a1.875 1.875 0 0 0-.432-2.385l-.84-.692c-.095-.078-.17-.229-.154-.43a7.614 7.614 0 0 0 0-1.139c-.016-.2.059-.352.153-.43l.84-.692c.708-.582.891-1.59.433-2.385l-.922-1.597a1.875 1.875 0 0 0-2.282-.818l-1.02.382c-.114.043-.282.031-.449-.083a7.49 7.49 0 0 0-.985-.57c-.183-.087-.277-.227-.297-.348l-.179-1.072a1.875 1.875 0 0 0-1.85-1.567h-1.843ZM12 15.75a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add actor"
-			tooltip="Actor"
-			color="#FEF9C3"
-			iconColor="#CA8A03"
-			isActive={activeAction === 'add-actor'}
-			onclick={() => selectAction('add-actor')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add system"
-			tooltip="System"
-			color="#FCE7F3"
-			iconColor="#BE185D"
-			isActive={activeAction === 'add-system'}
-			onclick={() => selectAction('add-system')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M2.25 5.25a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3V15a3 3 0 0 1-3 3h-3v.257c0 .597.237 1.17.659 1.591l.621.622a.75.75 0 0 1-.53 1.28h-9a.75.75 0 0 1-.53-1.28l.621-.622a2.25 2.25 0 0 0 .659-1.59V18h-3a3 3 0 0 1-3-3V5.25Zm1.5 0v7.5a1.5 1.5 0 0 0 1.5 1.5h13.5a1.5 1.5 0 0 0 1.5-1.5v-7.5a1.5 1.5 0 0 0-1.5-1.5H5.25a1.5 1.5 0 0 0-1.5 1.5Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add data"
-			tooltip="Data"
-			color="#DCFCE7"
-			iconColor="#16A34A"
-			isActive={activeAction === 'add-data'}
-			onclick={() => selectAction('add-data')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path d="M21 6.375c0 2.692-4.03 4.875-9 4.875S3 9.067 3 6.375 7.03 1.5 12 1.5s9 2.183 9 4.875Z" />
-					<path d="M12 12.75c2.685 0 5.19-.586 7.078-1.609a8.283 8.283 0 0 0 1.897-1.384c.016.121.025.244.025.368C21 12.817 16.97 15 12 15s-9-2.183-9-4.875c0-.124.009-.247.025-.368a8.285 8.285 0 0 0 1.897 1.384C6.809 12.164 9.315 12.75 12 12.75Z" />
-					<path d="M12 16.5c2.685 0 5.19-.586 7.078-1.609a8.282 8.282 0 0 0 1.897-1.384c.016.121.025.244.025.368 0 2.692-4.03 4.875-9 4.875s-9-2.183-9-4.875c0-.124.009-.247.025-.368a8.284 8.284 0 0 0 1.897 1.384C6.809 15.914 9.315 16.5 12 16.5Z" />
-					<path d="M12 20.25c2.685 0 5.19-.586 7.078-1.609a8.282 8.282 0 0 0 1.897-1.384c.016.121.025.244.025.368 0 2.692-4.03 4.875-9 4.875s-9-2.183-9-4.875c0-.124.009-.247.025-.368a8.284 8.284 0 0 0 1.897 1.384C6.809 19.664 9.315 20.25 12 20.25Z" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add policy"
-			tooltip="Policy"
-			color="#EDE9FE"
-			iconColor="#7C3AED"
-			isActive={activeAction === 'add-policy'}
-			onclick={() => selectAction('add-policy')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z" clip-rule="evenodd" />
-					<path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-
-		<ActionButton
-			label="Add hot spot"
-			tooltip="Hot Spot"
-			color="#FAE8FF"
-			iconColor="#A21CAF"
-			isActive={activeAction === 'add-hot-spot'}
-			onclick={() => selectAction('add-hot-spot')}
-		>
-			{#snippet icon()}
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5">
-					<path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75S21.75 6.615 21.75 12s-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12ZM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75Zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd" />
-				</svg>
-			{/snippet}
-		</ActionButton>
-	</aside>
+	<BoardToolbar
+		activeAction={boardState.activeAction}
+		onSelect={(action) => {
+			boardState.activeAction = boardState.activeAction === action ? null : action;
+		}}
+	/>
 </div>
